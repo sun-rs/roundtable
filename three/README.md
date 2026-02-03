@@ -81,7 +81,7 @@ Create your unified config. This defines which models you use and what roles exi
 
 ```bash
 mkdir -p ~/.config/three
-cp examples/config.v2.json ~/.config/three/config.json
+cp examples/config.json ~/.config/three/config.json
 ```
 
 **Minimal Config Example:**
