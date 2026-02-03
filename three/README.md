@@ -90,7 +90,6 @@ cp examples/config.json ~/.config/three/config.json
 {
   "backend": {
     "codex": {
-      "type": "codex-cli",
       "models": {
         "gpt-high": { "id": "gpt-5.2", "options": { "reasoningEffort": "high" } }
       }
@@ -112,7 +111,7 @@ This adds the `/three:*` slash commands to your chat.
 
 ```bash
 # Add local marketplace
-claude plugin marketplace add "./three-marketplace"
+claude plugin marketplace add "./plugins/claude-code"
 
 # Install plugin
 claude plugin install three@three-local
@@ -164,8 +163,7 @@ Define agents under `roles.<name>`.
 
 ### Project Structure
 -   `three/`: Rust MCP server source code.
--   `three-plugin/`: Claude Code plugin definition (commands, skills).
--   `three-marketplace/`: Local plugin marketplace repo.
+-   `plugins/claude-code/three/`: Claude Code plugin definition (commands, skills).
 
 ### Testing
 ```bash

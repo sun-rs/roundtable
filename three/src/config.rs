@@ -30,24 +30,11 @@ struct ThreeConfigV2 {
 
 #[derive(Debug, Clone, Deserialize)]
 struct ProviderV2 {
-    /// Provider type determines which runner is used.
-    ///
-    /// Supported:
-    /// - `codex-cli`
-    /// - `gemini-cli`
-    #[serde(rename = "type", default)]
-    kind: Option<ProviderKind>,
-
+    /// Optional command override. If omitted, the backend key is used.
+    #[serde(default)]
+    command: Option<String>,
     #[serde(default)]
     models: BTreeMap<String, ProviderModelV2>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum ProviderKind {
-    CodexCli,
-    GeminiCli,
-    McpSampling,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -199,6 +186,10 @@ pub enum CodexApprovalPolicy {
 #[derive(Debug, Clone, Deserialize)]
 pub struct BrainProfile {
     pub backend: Backend,
+    /// Backend id (same as top-level key: codex|gemini|claude|opencode|kimi).
+    pub backend_id: String,
+    /// Command to execute for CLI-based backends.
+    pub command: Option<String>,
     #[serde(default)]
     pub model: Option<String>,
     #[serde(default)]
@@ -332,29 +323,32 @@ impl ThreeConfigV2 {
         let mut brains: BTreeMap<String, BrainProfile> = BTreeMap::new();
 
         for (provider_id, provider) in self.providers {
-            let kind = provider.kind.or_else(|| infer_provider_kind(&provider_id));
-            let Some(kind) = kind else {
-                // Skip unknown providers (future extension).
-                continue;
-            };
+            let backend_key = parse_backend_key(&provider_id)?;
+            let backend_id = backend_key.as_str().to_string();
+            let backend = backend_key.runner();
+            let command = provider
+                .command
+                .as_deref()
+                .map(|s| s.trim())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+                .or_else(|| backend_key.default_command().map(|s| s.to_string()));
 
             for (model_key, model_cfg) in provider.models {
                 let brain_id = format!("{provider_id}.{model_key}");
                 let model_id = model_cfg.id.clone().or_else(|| Some(model_key.clone()));
 
-                let (backend, reasoning_effort) = match kind {
-                    ProviderKind::CodexCli => (
-                        Backend::Codex,
-                        extract_reasoning_effort(model_cfg.options.as_ref()),
-                    ),
-                    ProviderKind::GeminiCli => (Backend::Gemini, None),
-                    ProviderKind::McpSampling => (Backend::Claude, None),
+                let reasoning_effort = match backend {
+                    Backend::Codex => extract_reasoning_effort(model_cfg.options.as_ref()),
+                    Backend::Gemini | Backend::Claude => None,
                 };
 
                 brains.insert(
                     brain_id,
                     BrainProfile {
                         backend,
+                        backend_id: backend_id.clone(),
+                        command: command.clone(),
                         model: model_id,
                         reasoning_effort,
                     },
@@ -391,13 +385,60 @@ impl ThreeConfigV2 {
     }
 }
 
-fn infer_provider_kind(provider_id: &str) -> Option<ProviderKind> {
-    match provider_id.to_ascii_lowercase().as_str() {
-        "codex" => Some(ProviderKind::CodexCli),
-        "gemini" => Some(ProviderKind::GeminiCli),
-        "claude" => Some(ProviderKind::McpSampling),
-        _ => None,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BackendKey {
+    Claude,
+    Codex,
+    Opencode,
+    Kimi,
+    Gemini,
+}
+
+impl BackendKey {
+    fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            "opencode" => Some(Self::Opencode),
+            "kimi" => Some(Self::Kimi),
+            "gemini" => Some(Self::Gemini),
+            _ => None,
+        }
     }
+
+    fn as_str(&self) -> &'static str {
+        match self {
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Opencode => "opencode",
+            Self::Kimi => "kimi",
+            Self::Gemini => "gemini",
+        }
+    }
+
+    fn runner(&self) -> Backend {
+        match self {
+            Self::Claude => Backend::Claude,
+            Self::Codex | Self::Opencode => Backend::Codex,
+            Self::Gemini | Self::Kimi => Backend::Gemini,
+        }
+    }
+
+    fn default_command(&self) -> Option<&'static str> {
+        match self {
+            Self::Opencode => Some("opencode"),
+            Self::Kimi => Some("kimi"),
+            Self::Claude | Self::Codex | Self::Gemini => None,
+        }
+    }
+}
+
+fn parse_backend_key(provider_id: &str) -> Result<BackendKey> {
+    BackendKey::parse(provider_id).ok_or_else(|| {
+        anyhow!(
+            "unsupported backend key: {provider_id} (expected claude|codex|opencode|kimi|gemini)"
+        )
+    })
 }
 
 fn parse_qualified_ref(s: &str) -> Option<(String, String)> {
@@ -437,4 +478,59 @@ fn extract_reasoning_effort(options: Option<&serde_json::Value>) -> Option<Reaso
 pub struct ResolvedProfile {
     pub brain_id: String,
     pub profile: BrainProfile,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_unknown_backend_key() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "unknown": {
+      "models": {
+        "m": {"id":"x"}
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = VibeConfig::load(&path).unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("unsupported backend key") || msg.contains("invalid backend key"),
+            "unexpected error: {msg}"
+        );
+    }
+
+    #[test]
+    fn backend_key_sets_backend_id_and_default_command() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "opencode": {
+      "models": {
+        "m": {"id":"gpt-5.2"}
+      }
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let cfg = VibeConfig::load(&path).unwrap();
+        let brain = cfg.brains.get("opencode.m").unwrap();
+        assert_eq!(brain.backend_id, "opencode");
+        assert_eq!(brain.command.as_deref(), Some("opencode"));
+    }
 }

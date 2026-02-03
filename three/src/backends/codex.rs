@@ -9,6 +9,7 @@ use tokio::time::{timeout, Duration};
 
 #[derive(Debug, Clone)]
 pub struct CodexOptions {
+    pub command: Option<String>,
     pub prompt: String,
     pub workdir: PathBuf,
     pub session_id: Option<String>,
@@ -36,7 +37,14 @@ pub async fn run(opts: CodexOptions) -> Result<CodexResult> {
 }
 
 async fn run_internal(opts: CodexOptions) -> Result<CodexResult> {
-    let codex_bin = std::env::var("CODEX_BIN").unwrap_or_else(|_| "codex".to_string());
+    let codex_bin = opts
+        .command
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("CODEX_BIN").ok())
+        .unwrap_or_else(|| "codex".to_string());
 
     #[cfg(windows)]
     let mut cmd = {
@@ -246,6 +254,7 @@ mod tests {
         std::fs::create_dir_all(&workdir).unwrap();
 
         let res = run(CodexOptions {
+            command: None,
             prompt: "do the thing".to_string(),
             workdir: workdir.clone(),
             session_id: Some("sess-prev".to_string()),

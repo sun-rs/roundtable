@@ -572,13 +572,10 @@ impl VibeServer {
 
         for (role_id, role_cfg) in &cfg.roles {
             let prof = cfg.brains.get(&role_cfg.brain);
-            let (backend, model, reasoning_effort) = match prof {
+            let (backend, runner, model, reasoning_effort) = match prof {
                 Some(p) => (
-                    Some(match p.backend {
-                        Backend::Codex => "codex".to_string(),
-                        Backend::Gemini => "gemini".to_string(),
-                        Backend::Claude => "claude".to_string(),
-                    }),
+                    Some(p.backend_id.clone()),
+                    Some(p.backend),
                     p.model.clone(),
                     p.reasoning_effort
                         .map(|e| e.as_codex_config_value().to_string()),
@@ -588,7 +585,7 @@ impl VibeServer {
                         "role '{role_id}' references missing brain '{}'",
                         role_cfg.brain
                     ));
-                    (None, None, None)
+                    (None, None, None, None)
                 }
             };
 
@@ -630,8 +627,8 @@ impl VibeServer {
             };
 
             let (codex_sandbox, codex_ask_for_approval, codex_bypass, codex_skip_git_repo_check) =
-                match backend.as_deref() {
-                    Some("codex") => (
+                match runner {
+                    Some(Backend::Codex) => (
                         Some(codex_sandbox_str(role_cfg.policy.codex.sandbox).to_string()),
                         role_cfg
                             .policy
@@ -736,9 +733,11 @@ impl VibeServer {
 
         // Resolve profile either from config (brain/role) or from explicit backend/model/effort.
         let mut resolved_backend: Backend;
+        let mut resolved_backend_id: String;
         let mut resolved_model: Option<String>;
         let mut resolved_effort: Option<ReasoningEffort>;
         let resolved_brain_id: String;
+        let mut resolved_command: Option<String>;
         let role = args.role.clone().unwrap_or_else(|| "default".to_string());
 
         let cfg_for_repo = self
@@ -773,16 +772,18 @@ impl VibeServer {
                     .resolve_profile(args.role.as_deref(), args.brain.as_deref())
                     .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
                 resolved_backend = rp.profile.backend;
+                resolved_backend_id = rp.profile.backend_id.clone();
+                resolved_command = rp.profile.command.clone();
                 resolved_model = rp.profile.model;
                 resolved_effort = rp.profile.reasoning_effort;
                 resolved_brain_id = rp.brain_id;
             } else {
                 // Config present but not used.
-                (resolved_backend, resolved_model, resolved_effort, resolved_brain_id) =
+                (resolved_backend, resolved_backend_id, resolved_command, resolved_model, resolved_effort, resolved_brain_id) =
                     resolve_explicit_profile(&args).map_err(|e| McpError::invalid_params(e, None))?;
             }
         } else {
-            (resolved_backend, resolved_model, resolved_effort, resolved_brain_id) =
+            (resolved_backend, resolved_backend_id, resolved_command, resolved_model, resolved_effort, resolved_brain_id) =
                 resolve_explicit_profile(&args).map_err(|e| McpError::invalid_params(e, None))?;
         }
 
@@ -832,7 +833,11 @@ impl VibeServer {
             resolved_effort = Some(parse_effort(eff).map_err(|e| McpError::invalid_params(e, None))?);
         }
         if let Some(backend) = args.backend.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            resolved_backend = parse_backend(backend).map_err(|e| McpError::invalid_params(e, None))?;
+            let (runner, backend_id) =
+                parse_backend_id(backend).map_err(|e| McpError::invalid_params(e, None))?;
+            resolved_backend = runner;
+            resolved_backend_id = backend_id.clone();
+            resolved_command = default_command_for_backend_id(&backend_id);
         }
 
         let session_key = args
@@ -884,6 +889,7 @@ impl VibeServer {
         let (backend_session_id, agent_messages, warnings) = match resolved_backend {
             Backend::Codex => {
                 let r = backends::codex::run(backends::codex::CodexOptions {
+                    command: resolved_command.clone(),
                     prompt: prompt_text.clone(),
                     workdir: repo_root.clone(),
                     session_id: session_id_to_use,
@@ -901,6 +907,7 @@ impl VibeServer {
             }
             Backend::Gemini => {
                 let r = backends::gemini::run(backends::gemini::GeminiOptions {
+                    command: resolved_command.clone(),
                     prompt: prompt_text.clone(),
                     workdir: repo_root.clone(),
                     session_id: session_id_to_use,
@@ -1074,11 +1081,7 @@ impl VibeServer {
 
         let out = VibeOutput {
             success: error.is_none(),
-            backend: match resolved_backend {
-                Backend::Codex => "codex".to_string(),
-                Backend::Gemini => "gemini".to_string(),
-                Backend::Claude => "claude".to_string(),
-            },
+            backend: resolved_backend_id,
             role,
             brain_id: resolved_brain_id,
             model: model_used,
@@ -1135,14 +1138,24 @@ impl ServerHandler for VibeServer {
 
 fn resolve_explicit_profile(
     args: &VibeArgs,
-) -> std::result::Result<(Backend, Option<String>, Option<ReasoningEffort>, String), String> {
+) -> std::result::Result<
+    (
+        Backend,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<ReasoningEffort>,
+        String,
+    ),
+    String,
+> {
     let backend_str = args
         .backend
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .ok_or_else(|| "backend is required when no config role/brain is provided".to_string())?;
-    let backend = parse_backend(&backend_str)?;
+    let (backend, backend_id) = parse_backend_id(&backend_str)?;
     let model = args.model.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
     let effort = args
         .reasoning_effort
@@ -1156,27 +1169,40 @@ fn resolve_explicit_profile(
         Backend::Codex => {
             let m = model.as_deref().unwrap_or("default");
             let e = effort.map(|x| x.as_codex_config_value()).unwrap_or("default");
-            format!("codex:{m}:{e}")
+            format!("{backend_id}:{m}:{e}")
         }
         Backend::Gemini => {
             let m = model.as_deref().unwrap_or("default");
-            format!("gemini:{m}")
+            format!("{backend_id}:{m}")
         }
         Backend::Claude => {
             let m = model.as_deref().unwrap_or("default");
-            format!("claude:{m}")
+            format!("{backend_id}:{m}")
         }
     };
 
-    Ok((backend, model, effort, brain_id))
+    let command = default_command_for_backend_id(&backend_id);
+
+    Ok((backend, backend_id, command, model, effort, brain_id))
 }
 
-fn parse_backend(s: &str) -> std::result::Result<Backend, String> {
+fn parse_backend_id(s: &str) -> std::result::Result<(Backend, String), String> {
     match s.to_ascii_lowercase().as_str() {
-        "codex" => Ok(Backend::Codex),
-        "gemini" => Ok(Backend::Gemini),
-        "claude" => Ok(Backend::Claude),
-        other => Err(format!("unknown backend: {other} (expected codex|gemini|claude)")),
+        "codex" => Ok((Backend::Codex, "codex".to_string())),
+        "opencode" => Ok((Backend::Codex, "opencode".to_string())),
+        "gemini" => Ok((Backend::Gemini, "gemini".to_string())),
+        "kimi" => Ok((Backend::Gemini, "kimi".to_string())),
+        "claude" => Ok((Backend::Claude, "claude".to_string())),
+        other => Err(format!(
+            "unknown backend: {other} (expected claude|codex|opencode|kimi|gemini)"
+        )),
+    }
+}
+
+fn default_command_for_backend_id(backend_id: &str) -> Option<String> {
+    match backend_id {
+        "opencode" | "kimi" => Some(backend_id.to_string()),
+        _ => None,
     }
 }
 
@@ -1717,5 +1743,66 @@ mod tests {
         assert!(log_txt.contains("--skip-git-repo-check"));
         assert!(log_txt.contains("--model gpt-5.2"));
         assert!(log_txt.contains("model_reasoning_effort=\"high\""));
+    }
+
+    #[tokio::test]
+    async fn cfgtest_codex_command_override_from_config() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("three-config.json");
+        write_cfg(
+            &cfg_path,
+            &format!(
+                r#"{{
+  "backend": {{
+    "codex": {{
+      "command": "{}",
+      "models": {{
+        "m": {{"id":"gpt-5.2"}}
+      }}
+    }}
+  }},
+  "roles": {{
+    "impl": {{"model":"codex.m"}}
+  }}
+}}"#,
+                td.path().join("fake-codex.sh").display()
+            ),
+        );
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+        let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store);
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex.log");
+        write_fake_codex(&fake, &log, "sess-cfg-4", "ok");
+
+        let out = server
+            .run_vibe_internal(None, VibeArgs {
+                prompt: "ping".to_string(),
+                cd: repo.to_string_lossy().to_string(),
+                role: Some("impl".to_string()),
+                brain: None,
+                backend: None,
+                model: None,
+                reasoning_effort: None,
+                session_id: None,
+                force_new_session: true,
+                session_key: None,
+                timeout_secs: Some(5),
+                contract: None,
+                validate_patch: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(out.success, "error={:?}", out.error);
+        assert!(out.agent_messages.contains("ok"));
+
+        let log_txt = read_log(&log);
+        assert!(log_txt.contains("--model gpt-5.2"));
     }
 }

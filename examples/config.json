@@ -1,8 +1,6 @@
 {
   "backend": {
     "codex": {
-      "type": "codex-cli",
-      "name": "Codex CLI",
       "models": {
         "gpt-5.2-codex-xhigh": {
           "id": "gpt-5.2-codex",
@@ -19,11 +17,15 @@
       }
     },
     "gemini": {
-      "type": "gemini-cli",
-      "name": "Gemini CLI",
       "models": {
         "gemini-3-pro-preview": { "id": "gemini-3-pro-preview" },
         "gemini-3-flash-preview": { "id": "gemini-3-flash-preview" }
+      }
+    },
+    "claude": {
+      "models": {
+        "sonnet-4.5": { "id": "claude-sonnet-4-5-20250929" },
+        "opus-4.5": { "id": "claude-opus-4-5-20251101" }
       }
     }
   },
@@ -94,6 +96,12 @@
       "policy": {
         "codex": { "sandbox": "read-only" }
       }
+    },
+    "architect": {
+      "model": "claude.sonnet-4.5",
+      "description": "High-level system design and trade-off analysis.",
+      "prompt": "You are a software architect. Focus on scalability, maintainability, and patterns.",
+      "timeout_secs": 300
     }
   }
 }

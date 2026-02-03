@@ -22,7 +22,7 @@ Start from `three/examples/config.v2.json`.
 
 ```bash
 # Add the local marketplace (one-time)
-claude plugin marketplace add "./three-marketplace"
+claude plugin marketplace add "./plugins/claude-code"
 
 # Install the plugin
 claude plugin install three@three-local

@@ -8,6 +8,7 @@ use tokio::time::{timeout, Duration};
 
 #[derive(Debug, Clone)]
 pub struct GeminiOptions {
+    pub command: Option<String>,
     pub prompt: String,
     pub workdir: PathBuf,
     pub session_id: Option<String>,
@@ -30,13 +31,20 @@ pub async fn run(opts: GeminiOptions) -> Result<GeminiResult> {
 }
 
 async fn run_internal(opts: GeminiOptions) -> Result<GeminiResult> {
-    let gemini_bin = std::env::var("GEMINI_BIN").unwrap_or_else(|_| {
-        if cfg!(windows) {
-            "gemini.cmd".to_string()
-        } else {
-            "gemini".to_string()
-        }
-    });
+    let gemini_bin = opts
+        .command
+        .as_deref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("GEMINI_BIN").ok())
+        .unwrap_or_else(|| {
+            if cfg!(windows) {
+                "gemini.cmd".to_string()
+            } else {
+                "gemini".to_string()
+            }
+        });
 
     #[cfg(windows)]
     let mut cmd = {
@@ -218,6 +226,7 @@ mod tests {
         let _env = crate::test_support::scoped_gemini_bin(bin.to_string_lossy().as_ref());
 
         let res = run(GeminiOptions {
+            command: None,
             prompt: "read files".to_string(),
             workdir: workdir.clone(),
             session_id: Some("prev".to_string()),
