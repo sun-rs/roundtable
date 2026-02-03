@@ -1,36 +1,36 @@
 # Three
 
-Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。
 
-## Repo layout
+## 目录结构
 
-- `three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
-- `plugins/claude-code/three/` — Claude Code plugin (slash commands + routing skill).
+- `three/` — MCP Server（Rust）。负责将请求路由到配置的后端，并进行会话复用。
+- `plugins/claude-code/three/` — Claude Code 插件（斜杠命令 + 路由技能）。
 
-## Quick start
+## 快速开始
 
-1) Build the MCP server:
+1) 构建 MCP Server：
 
 ```bash
 cd three
 cargo build --release
 ```
 
-2) Register the MCP server with Claude Code:
+2) 在 Claude Code 注册 MCP Server：
 
 ```bash
 claude mcp add three -s user --transport stdio -- \
   "$(pwd)/target/release/three"
 ```
 
-3) Install the Claude Code plugin:
+3) 安装 Claude Code 插件：
 
 ```bash
 claude plugin marketplace add "./plugins/claude-code"
 claude plugin install three@three-local
 ```
 
-## Notes
+## 说明
 
-- The MCP server is host-agnostic; any CLI that supports MCP can use it.
-- Plugins are CLI-specific; add new ones under `plugins/<cli>/`.
+- MCP Server 是宿主无关的，只要 CLI 支持 MCP 就能使用。
+- 插件是宿主特定的，建议新增在 `plugins/<cli>/`。
