@@ -1,8 +1,9 @@
 # Three
 
-Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+[![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
+[![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-Chinese version: README.zh-CN.md
+Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
 
 ## Repo layout
 

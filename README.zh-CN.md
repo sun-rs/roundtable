@@ -1,8 +1,9 @@
 # Three
 
-面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。
+[![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
+[![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-英文版本：README.md
+面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。
 
 ## 目录结构
 
