@@ -266,16 +266,15 @@ fn json_path_get<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter_catalog::embedded_adapter_catalog;
     use crate::config::{
-        AdapterCatalog, ConfigLoader, FilesystemCapability, NetworkCapability, OutputParserConfig,
-        ShellCapability,
+        ConfigLoader, FilesystemCapability, NetworkCapability, OutputParserConfig, ShellCapability,
     };
     use std::path::Path;
     use std::collections::BTreeMap;
 
     fn render_args_for_role_with_prompt(
         cfg_path: &Path,
-        adapter_path: &Path,
         repo: &Path,
         role: &str,
         prompt: &str,
@@ -300,11 +299,10 @@ mod tests {
 
     fn render_args_for_role(
         cfg_path: &Path,
-        adapter_path: &Path,
         repo: &Path,
         role: &str,
     ) -> Vec<String> {
-        render_args_for_role_with_prompt(cfg_path, adapter_path, repo, role, "ping")
+        render_args_for_role_with_prompt(cfg_path, repo, role, "ping")
     }
 
     fn assert_gemini_render(args: &[String], model: &str, expect_sandbox: bool, expect_plan: bool) {
@@ -321,14 +319,12 @@ mod tests {
     }
 
     fn load_codex_adapter() -> AdapterConfig {
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        let catalog = embedded_adapter_catalog();
         catalog.adapters.get("codex").expect("codex adapter").clone()
     }
 
     fn load_opencode_adapter() -> AdapterConfig {
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        let catalog = embedded_adapter_catalog();
         catalog
             .adapters
             .get("opencode")
@@ -393,10 +389,7 @@ mod tests {
     fn cfgtest_render_kimi_readonly_appends_guardrail() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -432,10 +425,7 @@ mod tests {
     fn cfgtest_render_kimi_readwrite_no_guardrail_and_session() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -462,10 +452,7 @@ mod tests {
     fn cfgtest_render_claude_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("claude").expect("claude adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -489,10 +476,7 @@ mod tests {
     fn cfgtest_render_gemini_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("gemini").expect("gemini adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -535,10 +519,7 @@ mod tests {
     fn cfgtest_render_kimi_default_model_skips_model_flag() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&adapter_path).expect("load adapter catalog");
+        std::fs::create_dir_all(&repo).unwrap();        let catalog = embedded_adapter_catalog();
         let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
 
         let args = render_args(&GenericOptions {
@@ -593,8 +574,8 @@ mod tests {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
-        let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
-        let args = render_args_for_role(&cfg_path, &adapter_path, &repo, "gemini_reader");
+        let cfg_path = crate::test_utils::example_config_path();
+        let args = render_args_for_role(&cfg_path, &repo, "gemini_reader");
         assert_gemini_render(&args, "gemini-3-pro-preview", true, true);
     }
 
@@ -609,10 +590,10 @@ mod tests {
         let outside_file = outside.join("note.txt");
         std::fs::write(&outside_file, "data").unwrap();
 
-        let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
+        let cfg_path = crate::test_utils::example_config_path();
         let prompt = format!("Read {}", outside_file.display());
         let args =
-            render_args_for_role_with_prompt(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
+            render_args_for_role_with_prompt(&cfg_path, &repo, "gemini_reader", &prompt);
         assert!(args.contains(&"--include-directories".to_string()));
         assert!(args.contains(&outside.to_string_lossy().to_string()));
     }

@@ -871,7 +871,6 @@ mod tests {
     }
 
     fn codex_loader(cfg_path: &Path) -> ConfigLoader {
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
         ConfigLoader::new(Some(cfg_path.to_path_buf()))
     }
 

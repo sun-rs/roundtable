@@ -8,11 +8,11 @@ use three::{
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
-    test_utils::example_config_paths,
+    test_utils::example_config_path,
 };
 
-fn example_loader() -> (std::path::PathBuf, std::path::PathBuf) {
-    example_config_paths()
+fn example_loader() -> std::path::PathBuf {
+    example_config_path()
 }
 
 fn resolve_test_command(backend_id: &str) -> String {
@@ -25,7 +25,6 @@ fn resolve_test_command(backend_id: &str) -> String {
 
 fn render_args_for_role(
     cfg_path: &Path,
-    adapter_path: &Path,
     repo: &Path,
     role: &str,
     prompt: &str,
@@ -48,8 +47,8 @@ fn render_args_for_role(
     .unwrap()
 }
 
-fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, role: &str, prompt: &str) {
-    let args = render_args_for_role(cfg_path, adapter_path, repo, role, prompt);
+fn print_rendered_command(cfg_path: &Path, repo: &Path, role: &str, prompt: &str) {
+    let args = render_args_for_role(cfg_path, repo, role, prompt);
     let command = resolve_test_command("gemini");
     eprintln!("cfgtest command for role '{role}':");
     eprintln!("  cmd: {command}");
@@ -58,7 +57,6 @@ fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, rol
 
 async fn run_role(
     cfg_path: &Path,
-    adapter_path: &Path,
     repo: &Path,
     role: &str,
     prompt: String,
@@ -117,10 +115,10 @@ async fn cfgtest_real_gemini_3flash_smoke() {
     let repo = td.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -134,10 +132,10 @@ async fn cfgtest_real_gemini_3pro_smoke() {
     let repo = td.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "gemini_reader", &prompt);
+    let out = run_role(&cfg_path, &repo, "gemini_reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -157,10 +155,10 @@ async fn cfgtest_real_gemini_readonly_create_file() {
         std::fs::remove_file(&target).unwrap();
     }
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_reader", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_reader", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "gemini_reader", &prompt);
+    let out = run_role(&cfg_path, &repo, "gemini_reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
@@ -184,10 +182,10 @@ async fn cfgtest_real_gemini_readwrite_create_file() {
         std::fs::remove_file(&target).unwrap();
     }
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);
@@ -209,19 +207,19 @@ async fn cfgtest_real_gemini_include_directories_reads_external_file() {
     let content = format!("hello-{}", unique_suffix());
     std::fs::write(&external_file, &content).unwrap();
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = format!(
         "Read the file at {external} and reply with exactly CONTENT:{expected}.",
         external = external_file.display(),
         expected = content
     );
-    let args = render_args_for_role(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let args = render_args_for_role(&cfg_path, &repo, "gemini_writer", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == external_dir.to_string_lossy()));
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content), "msg={}", out.agent_messages);
@@ -246,7 +244,7 @@ async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files()
     std::fs::write(&external_file_a, &content_a).unwrap();
     std::fs::write(&external_file_b, &content_b).unwrap();
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = format!(
         "Read the files at {external_a} and {external_b} and reply with exactly CONTENT_A:{expected_a} CONTENT_B:{expected_b}.",
         external_a = external_file_a.display(),
@@ -255,15 +253,15 @@ async fn cfgtest_real_gemini_include_directories_reads_multiple_external_files()
         expected_b = content_b
     );
 
-    let args = render_args_for_role(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
+    let args = render_args_for_role(&cfg_path, &repo, "gemini_writer", &prompt);
     let include_idx = args.iter().position(|v| v == "--include-directories").unwrap();
     let include_val = args.get(include_idx + 1).expect("include value");
     let includes: Vec<&str> = include_val.split(',').collect();
     assert!(includes.iter().any(|v| *v == external_dir_a.to_string_lossy()));
     assert!(includes.iter().any(|v| *v == external_dir_b.to_string_lossy()));
 
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "gemini_writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "gemini_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "gemini_writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "gemini_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains(&content_a), "msg={}", out.agent_messages);

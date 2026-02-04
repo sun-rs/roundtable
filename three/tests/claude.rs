@@ -7,7 +7,7 @@ use three::{
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
-    test_utils::example_config_paths,
+    test_utils::example_config_path,
 };
 
 fn resolve_test_command() -> String {
@@ -39,7 +39,6 @@ fn write_claude_config(path: &Path) {
 
 fn render_args_for_role(
     cfg_path: &Path,
-    adapter_path: &Path,
     repo: &Path,
     role: &str,
     prompt: &str,
@@ -62,8 +61,8 @@ fn render_args_for_role(
     .unwrap()
 }
 
-fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, role: &str, prompt: &str) {
-    let args = render_args_for_role(cfg_path, adapter_path, repo, role, prompt);
+fn print_rendered_command(cfg_path: &Path, repo: &Path, role: &str, prompt: &str) {
+    let args = render_args_for_role(cfg_path, repo, role, prompt);
     let command = resolve_test_command();
     eprintln!("cfgtest command for role '{role}':");
     eprintln!("  cmd: {command}");
@@ -72,7 +71,6 @@ fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, rol
 
 async fn run_role(
     cfg_path: &Path,
-    adapter_path: &Path,
     repo: &Path,
     role: &str,
     prompt: String,
@@ -133,11 +131,11 @@ async fn cfgtest_real_claude_smoke() {
 
     let cfg_path = td.path().join("config.json");
     write_claude_config(&cfg_path);
-    let (_, adapter_path) = example_config_paths();
+    let cfg_path = example_config_path();
 
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "reader", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "reader", &prompt);
+    let out = run_role(&cfg_path, &repo, "reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -159,11 +157,11 @@ async fn cfgtest_real_claude_readonly_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_claude_config(&cfg_path);
-    let (_, adapter_path) = example_config_paths();
+    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "reader", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "reader", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "reader", &prompt);
+    let out = run_role(&cfg_path, &repo, "reader", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let reported_true = out.agent_messages.contains("RESULT:true");
@@ -189,11 +187,11 @@ async fn cfgtest_real_claude_readwrite_create_file() {
 
     let cfg_path = td.path().join("config.json");
     write_claude_config(&cfg_path);
-    let (_, adapter_path) = example_config_paths();
+    let cfg_path = example_config_path();
 
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);

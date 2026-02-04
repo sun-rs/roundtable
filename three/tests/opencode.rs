@@ -9,7 +9,7 @@ use three::{
     config::ConfigLoader,
     server::{VibeArgs, VibeServer},
     session_store::SessionStore,
-    test_utils::example_config_paths,
+    test_utils::example_config_path,
 };
 
 fn opencode_test_lock() -> &'static Mutex<()> {
@@ -17,13 +17,12 @@ fn opencode_test_lock() -> &'static Mutex<()> {
     LOCK.get_or_init(|| Mutex::new(()))
 }
 
-fn example_loader() -> (std::path::PathBuf, std::path::PathBuf) {
-    example_config_paths()
+fn example_loader() -> std::path::PathBuf {
+    example_config_path()
 }
 
 fn render_args_for_role(
     cfg_path: &Path,
-    adapter_path: &Path,
     repo: &Path,
     role: &str,
     prompt: &str,
@@ -46,8 +45,8 @@ fn render_args_for_role(
     .unwrap()
 }
 
-fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, role: &str, prompt: &str) {
-    let args = render_args_for_role(cfg_path, adapter_path, repo, role, prompt);
+fn print_rendered_command(cfg_path: &Path, repo: &Path, role: &str, prompt: &str) {
+    let args = render_args_for_role(cfg_path, repo, role, prompt);
     let command = "opencode";
     eprintln!("cfgtest command for role '{role}':");
     eprintln!("  cmd: {command}");
@@ -56,7 +55,6 @@ fn print_rendered_command(cfg_path: &Path, adapter_path: &Path, repo: &Path, rol
 
 async fn run_role(
     cfg_path: &Path,
-    adapter_path: &Path,
     repo: &Path,
     role: &str,
     prompt: String,
@@ -116,10 +114,10 @@ async fn cfgtest_real_opencode_smoke() {
     let repo = td.path().join("repo");
     std::fs::create_dir_all(&repo).unwrap();
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = prompt_date();
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "opencode_writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "opencode_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "opencode_writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "opencode_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     let re = Regex::new(r"DATE:\d{4}-\d{2}-\d{2}").unwrap();
@@ -141,10 +139,10 @@ async fn cfgtest_real_opencode_readwrite_create_file() {
         std::fs::remove_file(&target).unwrap();
     }
 
-    let (cfg_path, adapter_path) = example_loader();
+    let cfg_path = example_loader();
     let prompt = prompt_create_file(&target);
-    print_rendered_command(&cfg_path, &adapter_path, &repo, "opencode_writer", &prompt);
-    let out = run_role(&cfg_path, &adapter_path, &repo, "opencode_writer", prompt).await;
+    print_rendered_command(&cfg_path, &repo, "opencode_writer", &prompt);
+    let out = run_role(&cfg_path, &repo, "opencode_writer", prompt).await;
 
     assert!(out.success, "error={:?}", out.error);
     assert!(out.agent_messages.contains("RESULT:true"), "msg={}", out.agent_messages);

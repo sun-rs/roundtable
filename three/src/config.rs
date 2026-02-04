@@ -419,35 +419,6 @@ pub struct AdapterCatalog {
     pub adapters: BTreeMap<String, AdapterConfig>,
 }
 
-impl AdapterCatalog {
-    pub fn load(path: &Path) -> Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .with_context(|| format!("failed to read adapter config: {}", path.display()))?;
-        let v: serde_json::Value = serde_json::from_str(&raw)
-            .with_context(|| format!("failed to parse adapter JSON: {}", path.display()))?;
-        let obj = v
-            .as_object()
-            .ok_or_else(|| anyhow!("invalid adapter config: expected a JSON object"))?;
-        for key in obj.keys() {
-            if key != "adapters" {
-                return Err(anyhow!(
-                    "invalid adapter config: unexpected top-level key: {key}"
-                ));
-            }
-        }
-        if !obj.contains_key("adapters") {
-            return Err(anyhow!("invalid adapter config: missing 'adapters' object"));
-        }
-
-        let catalog: AdapterCatalog = serde_json::from_value(v)
-            .with_context(|| format!("failed to parse adapter JSON: {}", path.display()))?;
-        for backend_id in catalog.adapters.keys() {
-            parse_backend_key(backend_id)?;
-        }
-        Ok(catalog)
-    }
-}
-
 fn merge_config(mut base: VibeConfig, overlay: VibeConfig) -> VibeConfig {
     // Maps are merged by key; project overrides user on conflicts.
     for (backend_id, overlay_backend) in overlay.backend {
@@ -480,6 +451,7 @@ fn apply_adapter_catalog(cfg: &mut VibeConfig, catalog: &AdapterCatalog) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::adapter_catalog::embedded_adapter_catalog;
     use std::path::Path;
 
     #[test]
@@ -606,7 +578,7 @@ mod tests {
             std::env::set_var("XDG_CONFIG_HOME", &config_home);
         }
 
-        let (cfg_path, _adapter_path) = crate::test_utils::example_config_paths();
+        let cfg_path = crate::test_utils::example_config_path();
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let codex = cfg.backend.get("codex").unwrap();
@@ -687,9 +659,7 @@ mod tests {
     }
 
     #[test]
-    fn example_gemini_adapter_uses_sandbox_and_prompt() {
-        let (_, path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&path).unwrap();
+    fn example_gemini_adapter_uses_sandbox_and_prompt() {        let catalog = embedded_adapter_catalog();
         let gemini = catalog.adapters.get("gemini").expect("gemini adapter");
         let args = &gemini.args_template;
 
@@ -712,9 +682,7 @@ mod tests {
     }
 
     #[test]
-    fn example_opencode_adapter_uses_sessionid_part_text() {
-        let (_, path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&path).unwrap();
+    fn example_opencode_adapter_uses_sessionid_part_text() {        let catalog = embedded_adapter_catalog();
         let opencode = catalog.adapters.get("opencode").expect("opencode adapter");
 
         match &opencode.output_parser {
@@ -732,9 +700,7 @@ mod tests {
     }
 
     #[test]
-    fn example_claude_adapter_uses_json_object() {
-        let (_, path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&path).unwrap();
+    fn example_claude_adapter_uses_json_object() {        let catalog = embedded_adapter_catalog();
         let claude = catalog.adapters.get("claude").expect("claude adapter");
         assert_eq!(
             claude.filesystem_capabilities.as_deref(),
@@ -753,9 +719,7 @@ mod tests {
     }
 
     #[test]
-    fn example_codex_adapter_uses_json_stream() {
-        let (_, path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&path).unwrap();
+    fn example_codex_adapter_uses_json_stream() {        let catalog = embedded_adapter_catalog();
         let codex = catalog.adapters.get("codex").expect("codex adapter");
         assert_eq!(
             codex.filesystem_capabilities.as_deref(),
@@ -776,9 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn example_kimi_adapter_uses_text_output() {
-        let (_, path) = crate::test_utils::example_config_paths();
-        let catalog = AdapterCatalog::load(&path).unwrap();
+    fn example_kimi_adapter_uses_text_output() {        let catalog = embedded_adapter_catalog();
         let kimi = catalog.adapters.get("kimi").expect("kimi adapter");
         assert_eq!(
             kimi.filesystem_capabilities.as_deref(),
@@ -796,7 +758,7 @@ mod tests {
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
 
-        let (cfg_path, adapter_path) = crate::test_utils::example_config_paths();
+        let cfg_path = crate::test_utils::example_config_path();
         let loader =
             ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
@@ -841,7 +803,6 @@ mod tests {
 }"#,
         );
 
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
         let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let writer = cfg.resolve_profile(Some("writer")).unwrap();
@@ -881,7 +842,6 @@ mod tests {
 }"#,
         );
 
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
         let loader = ConfigLoader::new(Some(path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
         let writer = cfg.resolve_profile(Some("writer")).unwrap();
@@ -896,109 +856,6 @@ mod tests {
         std::fs::write(path, json).unwrap();
     }
 
-    fn write_adapter(path: &Path, json: &str) {
-        std::fs::write(path, json).unwrap();
-    }
-
-    #[test]
-    fn applies_adapter_catalog_for_used_backend() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let cfg_path = td.path().join("config.json");
-        write_cfg(
-            &cfg_path,
-            r#"{
-  "backend": {
-    "gemini": {
-      "models": { "gemini-3-pro-preview": {} }
-    }
-  },
-  "roles": {
-    "reader": {
-      "model": "gemini/gemini-3-pro-preview",
-      "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
-    }
-  }
-}"#,
-        );
-
-        let adapter_path = td.path().join("adapter.json");
-        write_adapter(
-            &adapter_path,
-            r#"{
-  "adapters": {
-    "gemini": {
-      "args_template": ["--prompt", "{{ prompt }}"],
-      "output_parser": { "type": "json_stream", "session_id_path": "session_id", "message_path": "content" }
-    }
-  }
-}"#,
-        );
-
-        let loader = ConfigLoader::new(Some(cfg_path));
-        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
-        let resolved = cfg.resolve_profile(Some("reader")).unwrap();
-        assert_eq!(resolved.profile.backend_id, "gemini");
-    }
-
-    #[test]
-    fn missing_adapter_only_fails_when_backend_used() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let cfg_path = td.path().join("config.json");
-        write_cfg(
-            &cfg_path,
-            r#"{
-  "backend": {
-    "codex": { "models": { "gpt-5.2": {} } },
-    "gemini": { "models": { "gemini-3-pro-preview": {} } }
-  },
-  "roles": {
-    "writer": {
-      "model": "codex/gpt-5.2",
-      "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
-    },
-    "reader": {
-      "model": "gemini/gemini-3-pro-preview",
-      "personas": { "description": "d", "prompt": "p" },
-      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
-    }
-  }
-}"#,
-        );
-
-        let adapter_path = td.path().join("adapter.json");
-        write_adapter(
-            &adapter_path,
-            r#"{
-  "adapters": {
-    "codex": {
-      "args_template": ["run", "{{ prompt }}"],
-      "output_parser": { "type": "json_stream", "session_id_path": "session_id", "message_path": "item.text" }
-    }
-  }
-}"#,
-        );
-
-        let loader = ConfigLoader::new(Some(cfg_path));
-        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
-
-        let ok = cfg.resolve_profile(Some("writer"));
-        assert!(ok.is_ok());
-
-        let missing = cfg.resolve_profile(Some("reader"));
-        assert!(missing.is_err());
-        assert!(missing
-            .unwrap_err()
-            .to_string()
-            .contains("missing adapter"));
-    }
 
     #[test]
     fn resolves_codex_variant_overrides_options() {
@@ -1035,7 +892,6 @@ mod tests {
 }"#,
         );
 
-        let (_, adapter_path) = crate::test_utils::example_config_paths();
         let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
