@@ -12,10 +12,10 @@
 
 ## CLI 适配矩阵
 
-所有后端都由 `adapter.json` 驱动（MiniJinja `args_template` + `output_parser`）。  
+所有后端都由内置的 adapter catalog 驱动（MiniJinja `args_template` + `output_parser`）。  
 模型写法为 `backend/model@variant`（variant 可选）。variant 会覆盖 `options`，
 但只有当 adapter 将这些 options 映射成 CLI 参数时才会生效。若 adapter 声明了
-`filesystem_capabilities`，不支持的值会在 **按 brain 解析**时失败。
+`filesystem_capabilities`，不支持的值会在 **按 role 解析**时失败。
 
 | Backend（CLI） | 可控读写能力 | 配置 → CLI 参数 | 模型 ID 命名 | options/variants 映射 | 输出解析与会话 |
 |---|---|---|---|---|---|
@@ -26,6 +26,7 @@
 | kimi | 仅 read-write | 无 read-only 参数（read-only 会被拒绝） | `kimi/<model>@variant` | 默认不映射（需扩展 adapter） | `text`（stateless），不支持 session id |
 
 Adapter 说明：
+- adapter catalog 内置于服务器（不再使用 `adapter.json` 配置文件）。
 - `args_template` 是 token 列表，空 token 会被丢弃。
 - `include_directories` 会从 prompt 中的绝对路径自动推导（Gemini）。
 

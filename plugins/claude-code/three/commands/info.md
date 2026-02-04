@@ -16,7 +16,6 @@ This command calls `mcp__three__info` which only reads config (no codex/gemini).
 2. Present a compact table with:
    - role
    - description
-   - brain
    - backend
    - model
    - reasoning_effort

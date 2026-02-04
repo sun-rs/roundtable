@@ -1,5 +1,5 @@
 ---
-description: Run a multi-brain roundtable and synthesize a decision
+description: Run a multi-role roundtable and synthesize a decision
 ---
 
 # /three:roundtable

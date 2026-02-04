@@ -14,7 +14,7 @@ This skill provides orchestration rules. Use it automatically when the user asks
 
 Roles and permissions live in config. Always prefer passing `role` to `mcp__three__three` so the MCP server can:
 
-- pick the correct brain profile (backend/model/effort)
+- pick the correct role profile (backend/model/effort)
 - apply role policy (codex sandbox + approval)
 - inject persona prompt when configured
 

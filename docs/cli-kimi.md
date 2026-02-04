@@ -2,7 +2,7 @@
 
 本文件描述 **three** 在 `backend.kimi` 下对 Kimi Code CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 Kimi CLI」的路径，不覆盖 wire/acp 等二级封装。
 
-模板配置来源：`~/.config/three/adapter.json`（或 `$XDG_CONFIG_HOME/three/adapter.json`）。
+模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
 
 ## 适用范围
 
@@ -62,8 +62,8 @@ Kimi 的 `--output-format text` 为纯文本输出，three 使用 `text` 解析�
 
 - `--print` 模式会**隐式开启 yolo/auto-approve**，Kimi CLI 没有可用的 `--no-yolo` 或等价关闭方式。
 - 因此 **read-only 无法被强制**。
-- three 通过 adapter 的 `filesystem_capabilities` 做**按 brain 校验**：
-  - `kimi` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 brain 时失败。
+- three 通过 adapter 的 `filesystem_capabilities` 做**按 role 校验**：
+  - `kimi` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 role 时失败。
 
 结论：**Kimi 不支持 read‑only**。如需软约束，请使用 `read-write` 并在 prompt 中自行加 guardrail。
 

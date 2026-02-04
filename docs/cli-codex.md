@@ -2,7 +2,7 @@
 
 本文件描述 **three** 在 `backend.codex` 下对 Codex CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 Codex CLI」的路径，不覆盖 opencode 等二级封装。
 
-模板配置来源：`~/.config/three/adapter.json`（或 `$XDG_CONFIG_HOME/three/adapter.json`）。
+模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
 
 ## 适用范围
 

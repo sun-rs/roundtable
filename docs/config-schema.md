@@ -7,7 +7,7 @@ This document captures the agreed configuration shape before code changes.
 The config has exactly two top-level keys:
 
 - `backend`
-- `brains`
+- `roles`
 
 No other top-level keys are allowed.
 
@@ -25,18 +25,16 @@ Each backend entry contains:
 
 - `models`: Model definitions for that backend.
 
-Adapter definitions are stored in a separate file: `~/.config/three/adapter.json`
-(or `$XDG_CONFIG_HOME/three/adapter.json`). User `config.json` should not include
-`adapter` fields.
+Adapter definitions are embedded in the server (no `adapter.json` config file).
+User `config.json` should not include `adapter` fields.
 
-The adapter catalog defines the **allowed backend set**. `config.json` may use a
-subset of those backends. If a backend is referenced in `config.json` but missing
-from `adapter.json`, only calls targeting that backend fail; other backends still
-run.
+The embedded adapter catalog defines the **allowed backend set**. `config.json`
+may use a subset of those backends. If a backend is referenced in `config.json`
+but is not supported by the catalog, validation fails.
 
-## adapter.json
+## Embedded adapter catalog
 
-`adapter.json` defines how to call each CLI. It contains:
+The embedded adapter catalog defines how to call each CLI. It contains:
 
 ```json
 {
@@ -54,7 +52,7 @@ Each adapter entry contains:
   a single entry.
 - `output_parser`: How to extract session id and agent message from stdout.
 - `filesystem_capabilities` (optional): List of supported filesystem values
-  (`read-only`, `read-write`). If provided, brains requesting a value
+  (`read-only`, `read-write`). If provided, roles requesting a value
   outside this list will fail during `resolve_profile`.
 
 Template context variables (stable names):
@@ -64,7 +62,7 @@ Template context variables (stable names):
 - `session_id` (string or empty)
 - `workdir` (string)
 - `options` (object; merged model options + variant overrides)
-- `capabilities` (object; from the selected brain)
+- `capabilities` (object; from the selected role)
 - `include_directories` (string; comma-separated extra dirs inferred from prompt)
 
 `output_parser` types:
@@ -98,9 +96,9 @@ Rules:
 - `variants` is an object map. Each variant overrides/extends `options` by upsert.
 - Final options are resolved as: base `options` + variant overrides.
 
-## brains
+## roles
 
-`brains` integrates the old roles/personas. Each brain entry contains:
+`roles` integrates the old roles/personas. Each role entry contains:
 
 - `model`: A string in the form `backend/model@variant` (variant optional).
   - Example: `codex/gpt-5.2-codex@xhigh`
@@ -119,12 +117,12 @@ Rules:
 
 `capabilities` are semantic and are mapped to CLI flags in `adapter.args_template`.
 Adapters may optionally declare `filesystem_capabilities` to enforce supported values.
-If the list exists and a brain requests a filesystem capability not in the list,
-`resolve_profile` fails for that brain (config load still succeeds).
+If the list exists and a role requests a filesystem capability not in the list,
+`resolve_profile` fails for that role (config load still succeeds).
 
-## Brain → CLI mapping (summary)
+## Role → CLI mapping (summary)
 
-The only per-brain inputs that can reach a CLI are:
+The only per-role inputs that can reach a CLI are:
 
 - `model` (backend/model@variant) → becomes the backend `model` string.
 - `personas` → used to build the final prompt (system + persona + user task).
@@ -132,8 +130,19 @@ The only per-brain inputs that can reach a CLI are:
 - `options` / `variants` → merged into `options` and exposed to adapter.
 
 Anything else must be added explicitly in the adapter template; there is no
-implicit per-brain flag injection.
+implicit per-role flag injection.
 
 ## Example (minimal)
 
 See `examples/config.json` for a full sample.
+
+## Migration note
+
+If you have an existing config that uses `brains`, rename the top-level key to `roles`:
+
+```json
+{
+  "backend": { "...": {} },
+  "roles": { "...": {} }
+}
+```

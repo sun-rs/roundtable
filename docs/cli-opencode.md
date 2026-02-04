@@ -2,7 +2,7 @@
 
 本文件描述 **three** 在 `backend.opencode` 下对 OpenCode CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 opencode CLI」的路径，不覆盖 TUI/serve/attach 等二级封装。
 
-模板配置来源：`~/.config/three/adapter.json`（或 `$XDG_CONFIG_HOME/three/adapter.json`）。
+模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
 
 ## 适用范围
 
@@ -53,8 +53,8 @@ run
 ## Capabilities 映射
 
 - OpenCode CLI 的 `run` 模式 **没有** 与 `read-only / shell / network` 直接对应的 flags。
-- three 通过 adapter 的 `filesystem_capabilities` 做**按 brain 校验**：
-  - `opencode` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 brain 时失败。
+- three 通过 adapter 的 `filesystem_capabilities` 做**按 role 校验**：
+  - `opencode` 仅声明 `read-write`，因此 `filesystem: read-only` 会在解析 role 时失败。
 - 如需软约束，请通过 prompt guardrail 或自定义 adapter 实现。
 
 ## Model 默认值（重要）

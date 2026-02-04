@@ -2,7 +2,7 @@
 
 本文件描述 **three** 在 `backend.gemini` 下对 Gemini CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 Gemini CLI」的路径，不覆盖 opencode 等二级封装。
 
-模板配置来源：`~/.config/three/adapter.json`（或 `$XDG_CONFIG_HOME/three/adapter.json`）。
+模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
 
 ## 适用范围
 
@@ -30,7 +30,7 @@
 ## 参数映射规则
 
 ### 1) 模型
-- `brains.<name>.model` → 解析为 `backend/model@variant`
+- `roles.<name>.model` → 解析为 `backend/model@variant`
 - Gemini 后端实际传参：`-m {{ model }}`
   - 若 `model == "default"`，则 **不传 `-m`**，使用 CLI 默认模型
 
@@ -59,7 +59,7 @@
 - `filesystem = read-only` → 传 `--approval-mode plan`（Gemini CLI 的只读模式）
 - 其他情况 → 传 `-y`（YOLO / auto-approve），避免 MCP 进入交互卡死。
 
-## Brain 可影响的参数（当前）
+## Role 可影响的参数（当前）
 
 - `model` → `-m`
   - 若 `model == "default"`，则 **不传 `-m`**，使用 CLI 默认模型
@@ -87,32 +87,30 @@
 当 `model == "default"` 时，three **不会传 `-m`**，Gemini CLI 将使用其配置文件中的默认模型。  
 若本机未配置默认模型，CLI 可能会报错或使用内置默认值。
 
-## 示例片段（摘自 examples/config.json）
+## 示例片段（内置 adapter 模板）
 
 ```json
-"gemini": {
-  "adapter": {
-    "args_template": [
-      "--output-format",
-      "json",
-      "{% if capabilities.filesystem == 'read-only' %}--approval-mode{% endif %}",
-      "{% if capabilities.filesystem == 'read-only' %}plan{% endif %}",
-      "{% if capabilities.filesystem != 'read-only' %}-y{% endif %}",
-      "-m",
-      "{{ model }}",
-      "{% if capabilities.filesystem == 'read-only' %}--sandbox{% endif %}",
-      "{% if include_directories %}--include-directories{% endif %}",
-      "{{ include_directories }}",
-      "{% if session_id %}--resume{% endif %}",
-      "{% if session_id %}{{ session_id }}{% endif %}",
-      "--prompt",
-      "{{ prompt }}"
-    ],
-    "output_parser": {
-      "type": "json_object",
-      "session_id_path": "session_id",
-      "message_path": "response"
-    }
+{
+  "args_template": [
+    "--output-format",
+    "json",
+    "{% if capabilities.filesystem == 'read-only' %}--approval-mode{% endif %}",
+    "{% if capabilities.filesystem == 'read-only' %}plan{% endif %}",
+    "{% if capabilities.filesystem != 'read-only' %}-y{% endif %}",
+    "-m",
+    "{{ model }}",
+    "{% if capabilities.filesystem == 'read-only' %}--sandbox{% endif %}",
+    "{% if include_directories %}--include-directories{% endif %}",
+    "{{ include_directories }}",
+    "{% if session_id %}--resume{% endif %}",
+    "{% if session_id %}{{ session_id }}{% endif %}",
+    "--prompt",
+    "{{ prompt }}"
+  ],
+  "output_parser": {
+    "type": "json_object",
+    "session_id_path": "session_id",
+    "message_path": "response"
   }
 }
 ```

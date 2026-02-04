@@ -2,7 +2,7 @@
 
 本文件描述 **three** 在 `backend.claude` 下对 Claude Code CLI 的参数映射、会话控制与输出解析规则。它只针对「直接调用 Claude CLI」的路径，不覆盖其他封装。
 
-模板配置来源：`~/.config/three/adapter.json`（或 `$XDG_CONFIG_HOME/three/adapter.json`）。
+模板配置由 three 内置的 adapter catalog 提供（不再使用 `adapter.json` 配置文件）。
 
 ## 适用范围
 
@@ -57,12 +57,12 @@
 
 ## 读写权限建议
 
-- 读-only brain：`--permission-mode plan`（阻止写操作）
-- 可写 brain：`--dangerously-skip-permissions`（允许非交互写入；有风险）
+- 读-only role：`--permission-mode plan`（阻止写操作）
+- 可写 role：`--dangerously-skip-permissions`（允许非交互写入；有风险）
 
 > 说明：在 `--print` 模式下如果不显式放行，Claude CLI 会拒绝写操作并返回 `permission_denials`。
 
-## Brain 可影响的参数（当前）
+## Role 可影响的参数（当前）
 
 - `model` → `--model`
   - 若 `model == "default"`，则 **不传 `--model`**，使用 CLI 默认模型

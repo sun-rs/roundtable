@@ -12,10 +12,10 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 
 ## CLI adapter matrix
 
-All backends are driven by `adapter.json` (MiniJinja `args_template` + `output_parser`).  
+All backends are driven by the embedded adapter catalog (MiniJinja `args_template` + `output_parser`).
 Models are referenced as `backend/model@variant` (variant optional). Variants override `options`,
 and only take effect if the adapter maps those options into CLI flags. If an adapter declares
-`filesystem_capabilities`, unsupported values fail **per brain** during `resolve_profile`.
+`filesystem_capabilities`, unsupported values fail **per role** during `resolve_profile`.
 
 | Backend (CLI) | Filesystem capabilities | Config → CLI flags | Model id naming | Options/variants mapping | Output parser & session |
 |---|---|---|---|---|---|
@@ -26,6 +26,7 @@ and only take effect if the adapter maps those options into CLI flags. If an ada
 | kimi | read-write only | no read-only flag (read-only rejected) | `kimi/<model>@variant` | Not mapped by default (extend adapter) | `text` (stateless), no session id |
 
 Adapter notes:
+- The adapter catalog is embedded in the server (no `adapter.json` config file).
 - `args_template` is a list of tokens; empty tokens are dropped.
 - `include_directories` is auto-derived from absolute paths in the prompt (Gemini).
 
