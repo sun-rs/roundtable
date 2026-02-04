@@ -2,106 +2,117 @@
   "backend": {
     "codex": {
       "models": {
-        "gpt-5.2-codex-xhigh": {
-          "id": "gpt-5.2-codex",
-          "options": { "reasoningEffort": "xhigh" }
+        "gpt-5.2": {
+          "options": {
+            "model_reasoning_effort": "high"
+          },
+          "variants": {
+            "low": {
+              "model_reasoning_effort": "low"
+            },
+            "fast": {
+              "model_reasoning_effort": "low"
+            },
+            "medium": {
+              "model_reasoning_effort": "medium"
+            },
+            "xhigh": {
+              "model_reasoning_effort": "xhigh"
+            }
+          }
         },
-        "gpt-5.2-high": {
-          "id": "gpt-5.2",
-          "options": { "reasoningEffort": "high" }
-        },
-        "gpt-5.2-xhigh": {
-          "id": "gpt-5.2",
-          "options": { "reasoningEffort": "xhigh" }
+        "gpt-5.2-codex": {
+          "options": {
+            "model_reasoning_effort": "high"
+          },
+          "variants": {
+            "fast": {
+              "model_reasoning_effort": "low"
+            },
+            "medium": {
+              "model_reasoning_effort": "medium"
+            },
+            "xhigh": {
+              "model_reasoning_effort": "xhigh"
+            }
+          }
         }
-      }
-    },
-    "gemini": {
-      "models": {
-        "gemini-3-pro-preview": { "id": "gemini-3-pro-preview" },
-        "gemini-3-flash-preview": { "id": "gemini-3-flash-preview" }
       }
     },
     "claude": {
       "models": {
-        "sonnet-4.5": { "id": "claude-sonnet-4-5-20250929" },
-        "opus-4.5": { "id": "claude-opus-4-5-20251101" }
+        "claude-opus-4-5-20251101": {}
+      }
+    },
+    "gemini": {
+      "models": {
+        "gemini-3-pro-preview": {},
+        "gemini-3-flash-preview": {}
+      }
+    },
+    "opencode": {
+      "models": {
+        "opencode-gpt-5": {}
+      }
+    },
+    "kimi": {
+      "models": {
+        "kimi-k2": {}
       }
     }
   },
-  "personas": {
-    "oracle": {
-      "description": "Deep reasoning, architecture tradeoffs, hard debugging.",
-      "prompt": "You are Oracle: a rigorous, skeptical senior engineer. Prefer evidence, cite file paths/lines, and propose minimal-risk changes."
-    },
-    "sisyphus": {
-      "description": "Fast executor, keeps changes small and shippable.",
-      "prompt": "You are Sisyphus: ship-focused engineer. Keep changes minimal, follow repo conventions, and always include verification steps."
-    },
-    "reviewer": {
-      "description": "Adversarial reviewer focusing on regressions and missing tests.",
-      "prompt": "You are a code reviewer. Prioritize correctness, security, and regressions. When proposing fixes, include PATCH + CITATIONS."
-    },
-    "reader": {
-      "description": "Large-context codebase reader.",
-      "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
-    },
-    "moderator": {
-      "description": "Synthesize multiple viewpoints into one decision.",
-      "prompt": "You are a moderator. Produce a crisp conclusion, tradeoffs, and next actions."
-    }
-  },
-  "roles": {
-    "oracle": {
-      "model": "codex.gpt-5.2-codex-xhigh",
-      "description": "Deep reasoning, architecture tradeoffs, hard debugging.",
-      "persona": "oracle",
-      "timeout_secs": 900,
-      "policy": {
-        "codex": {
-          "sandbox": "workspace-write",
-          "skip_git_repo_check": true
-        }
+  "brains": {
+    "gemini_reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": {
+        "description": "Gemini 3 Pro read-only brain for deep analysis.",
+        "prompt": "You are a repo reader. Summarize structure and point to exact files and symbols. Do not invent."
+      },
+      "capabilities": {
+        "filesystem": "read-only",
+        "shell": "deny",
+        "network": "deny",
+        "tools": ["read", "glob", "grep"]
       }
     },
-    "sisyphus": {
-      "model": "codex.gpt-5.2-high",
-      "description": "Fast executor, keeps changes small and shippable.",
-      "persona": "sisyphus",
-      "timeout_secs": 600,
-      "policy": {
-        "codex": { "sandbox": "read-only" }
+    "gemini_writer": {
+      "model": "gemini/gemini-3-flash-preview",
+      "personas": {
+        "description": "Gemini 3 Flash write-enabled brain for quick edits.",
+        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
+      },
+      "capabilities": {
+        "filesystem": "read-write",
+        "shell": "allow",
+        "network": "allow",
+        "tools": ["*"]
       }
     },
-    "reviewer": {
-      "model": "codex.gpt-5.2-high",
-      "description": "Adversarial reviewer focusing on regressions and missing tests.",
-      "persona": "reviewer",
-      "timeout_secs": 180,
-      "policy": {
-        "codex": { "sandbox": "read-only" }
+    "codex_reader": {
+      "model": "codex/gpt-5.2@low",
+      "personas": {
+        "description": "Codex read-only brain using gpt-5.2@low.",
+        "prompt": "You are a careful reviewer. Read and analyze only; do not propose file edits unless asked."
+      },
+      "capabilities": {
+        "filesystem": "read-only",
+        "shell": "deny",
+        "network": "deny",
+        "tools": ["read", "glob", "grep"]
       }
     },
-    "reader": {
-      "model": "gemini.gemini-3-pro-preview",
-      "description": "Large-context codebase reader.",
-      "persona": "reader",
-      "timeout_secs": 300
-    },
-    "moderator": {
-      "model": "codex.gpt-5.2-high",
-      "description": "Synthesize multiple viewpoints into one decision.",
-      "persona": "moderator",
-      "timeout_secs": 240,
-      "policy": {
-        "codex": { "sandbox": "read-only" }
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": {
+        "description": "Codex write-enabled brain using gpt-5.2-codex.",
+        "prompt": "You can create and modify files when required. Keep changes minimal and verifiable."
+      },
+      "capabilities": {
+        "filesystem": "read-write",
+        "shell": "allow",
+        "network": "allow",
+        "tools": ["*"]
       }
-    },
-    "architect": {
-      "model": "claude.sonnet-4.5",
-      "description": "High-level system design and trade-off analysis.",
-      "prompt": "You are a software architect. Focus on scalability, maintainability, and patterns.",
-      "timeout_secs": 300
     }
   }
 }

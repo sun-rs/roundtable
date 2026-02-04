@@ -2,7 +2,11 @@ use anyhow::Result;
 use clap::Parser;
 use rmcp::{transport::stdio, ServiceExt};
 use std::path::PathBuf;
-use three::{config::VibeConfig, config_loader::ConfigLoader, server::VibeServer, session_store::SessionStore};
+use three::{
+    config::{ConfigLoader, VibeConfig},
+    server::VibeServer,
+    session_store::SessionStore,
+};
 
 /// Three MCP router: multi-LLM, session-aware delegator.
 #[derive(Parser, Debug)]

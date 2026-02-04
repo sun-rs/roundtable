@@ -1,7 +1,6 @@
 use crate::{
-    backends,
-    config::{Backend, CodexSandboxPolicy, ReasoningEffort},
-    config_loader::ConfigLoader,
+    backend,
+    config::ConfigLoader,
     contract,
     session_store::{now_unix_secs, SessionRecord, SessionStore},
 };
@@ -143,47 +142,25 @@ pub enum OutputContract {
 }
 
 #[derive(Debug, Serialize)]
-struct VibeOutput {
-    success: bool,
-    backend: String,
-    role: String,
-    brain_id: String,
-    model: Option<String>,
-    reasoning_effort: Option<String>,
-    codex_sandbox: Option<String>,
-    codex_ask_for_approval: Option<String>,
-    codex_dangerously_bypass_approvals_and_sandbox: Option<bool>,
-    codex_skip_git_repo_check: Option<bool>,
-    session_key: String,
-    resumed: bool,
-    backend_session_id: String,
-    agent_messages: String,
-    warnings: Option<String>,
-    contract: Option<String>,
-    contract_errors: Vec<String>,
-    patch_format: Option<String>,
-    patch_apply_check_ok: Option<bool>,
-    patch_apply_check_output: Option<String>,
-    error: Option<String>,
+pub struct VibeOutput {
+    pub success: bool,
+    pub backend: String,
+    pub role: String,
+    pub brain_id: String,
+    pub model: Option<String>,
+    pub session_key: String,
+    pub resumed: bool,
+    pub backend_session_id: String,
+    pub agent_messages: String,
+    pub warnings: Option<String>,
+    pub contract: Option<String>,
+    pub contract_errors: Vec<String>,
+    pub patch_format: Option<String>,
+    pub patch_apply_check_ok: Option<bool>,
+    pub patch_apply_check_output: Option<String>,
+    pub error: Option<String>,
 }
 
-fn codex_sandbox_str(p: CodexSandboxPolicy) -> &'static str {
-    match p {
-        CodexSandboxPolicy::ReadOnly => "read-only",
-        CodexSandboxPolicy::WorkspaceWrite => "workspace-write",
-        CodexSandboxPolicy::DangerFullAccess => "danger-full-access",
-    }
-}
-
-fn codex_approval_str(p: crate::config::CodexApprovalPolicy) -> &'static str {
-    use crate::config::CodexApprovalPolicy;
-    match p {
-        CodexApprovalPolicy::Untrusted => "untrusted",
-        CodexApprovalPolicy::OnFailure => "on-failure",
-        CodexApprovalPolicy::OnRequest => "on-request",
-        CodexApprovalPolicy::Never => "never",
-    }
-}
 
 #[derive(Debug, Serialize)]
 struct RoundtableOutput {
@@ -200,24 +177,16 @@ struct InfoOutput {
     success: bool,
     cd: String,
     config_sources: Vec<String>,
-    roles: Vec<InfoRole>,
+    brains: Vec<InfoBrain>,
     error: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
-struct InfoRole {
-    role: String,
-    description: Option<String>,
+struct InfoBrain {
     brain: String,
-    backend: Option<String>,
-    model: Option<String>,
-    reasoning_effort: Option<String>,
-    codex_sandbox: Option<String>,
-    codex_ask_for_approval: Option<String>,
-    codex_dangerously_bypass_approvals_and_sandbox: Option<bool>,
-    codex_skip_git_repo_check: Option<bool>,
-    timeout_secs: Option<u64>,
-    persona_source: String,
+    backend: String,
+    model: String,
+    description: String,
     prompt_present: bool,
     prompt_len: Option<usize>,
     prompt_preview: Option<String>,
@@ -558,7 +527,7 @@ impl VibeServer {
                 success: false,
                 cd: repo_root.to_string_lossy().to_string(),
                 config_sources: sources,
-                roles: Vec::new(),
+                brains: Vec::new(),
                 error: Some("no config found (create ~/.config/three/config.json)".to_string()),
             };
             let json = serde_json::to_string(&out).map_err(|e| {
@@ -567,111 +536,37 @@ impl VibeServer {
             return Ok(CallToolResult::success(vec![Content::text(json)]));
         };
 
-        let mut roles: Vec<InfoRole> = Vec::new();
+        let mut brains: Vec<InfoBrain> = Vec::new();
         let mut errors: Vec<String> = Vec::new();
 
-        for (role_id, role_cfg) in &cfg.roles {
-            let prof = cfg.brains.get(&role_cfg.brain);
-            let (backend, runner, model, reasoning_effort) = match prof {
-                Some(p) => (
-                    Some(p.backend_id.clone()),
-                    Some(p.backend),
-                    p.model.clone(),
-                    p.reasoning_effort
-                        .map(|e| e.as_codex_config_value().to_string()),
-                ),
-                None => {
-                    errors.push(format!(
-                        "role '{role_id}' references missing brain '{}'",
-                        role_cfg.brain
-                    ));
-                    (None, None, None, None)
+        for (brain_id, brain_cfg) in &cfg.brains {
+            let resolved = match cfg.resolve_profile(None, Some(brain_id)) {
+                Ok(r) => r,
+                Err(e) => {
+                    errors.push(format!("brain '{brain_id}' invalid: {e}"));
+                    continue;
                 }
             };
 
-            // Precedence:
-            // 1) roles.<role>.prompt
-            // 2) roles.<role>.persona -> personas.<id>.prompt
-            let (persona_source, prompt_raw) = if let Some(p) = role_cfg
-                .prompt
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-            {
-                ("role.prompt".to_string(), Some(p.to_string()))
-            } else if let Some(pid) = role_cfg.persona.as_deref() {
-                let p = cfg
-                    .personas
-                    .get(pid)
-                    .and_then(|x| x.prompt.as_deref())
-                    .map(|s| s.trim())
-                    .filter(|s| !s.is_empty())
-                    .map(|s| s.to_string());
-                (format!("personas.{pid}"), p)
+            let prompt_raw = brain_cfg.personas.prompt.trim();
+            let (prompt_present, prompt_len, prompt_preview) = if prompt_raw.is_empty() {
+                (false, None, None)
             } else {
-                ("none".to_string(), None)
-            };
-
-            let (prompt_present, prompt_len, prompt_preview) = match prompt_raw.as_deref() {
-                Some(p) => {
-                    let len = p.len();
-                    let preview_len = 120usize;
-                    let preview = if len <= preview_len {
-                        p.to_string()
-                    } else {
-                        format!("{}...", &p[..preview_len])
-                    };
-                    (true, Some(len), Some(preview))
-                }
-                None => (false, None, None),
-            };
-
-            let (codex_sandbox, codex_ask_for_approval, codex_bypass, codex_skip_git_repo_check) =
-                match runner {
-                    Some(Backend::Codex) => (
-                        Some(codex_sandbox_str(role_cfg.policy.codex.sandbox).to_string()),
-                        role_cfg
-                            .policy
-                            .codex
-                            .ask_for_approval
-                            .map(|p| codex_approval_str(p).to_string()),
-                        Some(role_cfg.policy.codex.dangerously_bypass_approvals_and_sandbox),
-                        Some(
-                            role_cfg
-                                .policy
-                                .codex
-                                .skip_git_repo_check
-                                .unwrap_or(matches!(
-                                    role_cfg.policy.codex.sandbox,
-                                    CodexSandboxPolicy::ReadOnly
-                                )),
-                        ),
-                    ),
-                    _ => (None, None, None, None),
+                let len = prompt_raw.len();
+                let preview_len = 120usize;
+                let preview = if len <= preview_len {
+                    prompt_raw.to_string()
+                } else {
+                    format!("{}...", &prompt_raw[..preview_len])
                 };
+                (true, Some(len), Some(preview))
+            };
 
-            let description = role_cfg
-                .description
-                .clone()
-                .or_else(|| role_cfg.persona.as_deref().and_then(|pid| {
-                    cfg.personas
-                        .get(pid)
-                        .and_then(|p| p.description.clone())
-                }));
-
-            roles.push(InfoRole {
-                role: role_id.to_string(),
-                description,
-                brain: role_cfg.brain.clone(),
-                backend,
-                model,
-                reasoning_effort,
-                codex_sandbox,
-                codex_ask_for_approval,
-                codex_dangerously_bypass_approvals_and_sandbox: codex_bypass,
-                codex_skip_git_repo_check,
-                timeout_secs: role_cfg.timeout_secs,
-                persona_source,
+            brains.push(InfoBrain {
+                brain: brain_id.to_string(),
+                backend: resolved.profile.backend_id.clone(),
+                model: resolved.profile.model.clone(),
+                description: brain_cfg.personas.description.clone(),
                 prompt_present,
                 prompt_len,
                 prompt_preview,
@@ -682,7 +577,7 @@ impl VibeServer {
             success: errors.is_empty(),
             cd: repo_root.to_string_lossy().to_string(),
             config_sources: sources,
-            roles,
+            brains,
             error: if errors.is_empty() {
                 None
             } else {
@@ -697,9 +592,9 @@ impl VibeServer {
 }
 
 impl VibeServer {
-    async fn run_vibe_internal(
+    pub async fn run_vibe_internal(
         &self,
-        peer: Option<Peer<RoleServer>>,
+        _peer: Option<Peer<RoleServer>>,
         args: VibeArgs,
     ) -> Result<VibeOutput, McpError> {
         if args.prompt.trim().is_empty() {
@@ -718,7 +613,11 @@ impl VibeServer {
         let cd = PathBuf::from(args.cd.as_str());
         let repo_root = cd.canonicalize().map_err(|e| {
             McpError::invalid_params(
-                format!("working directory does not exist or is not accessible: {} ({})", cd.display(), e),
+                format!(
+                    "working directory does not exist or is not accessible: {} ({})",
+                    cd.display(),
+                    e
+                ),
                 None,
             )
         })?;
@@ -729,115 +628,35 @@ impl VibeServer {
             ));
         }
 
-        let mut prompt_text = args.prompt.clone();
-
-        // Resolve profile either from config (brain/role) or from explicit backend/model/effort.
-        let mut resolved_backend: Backend;
-        let mut resolved_backend_id: String;
-        let mut resolved_model: Option<String>;
-        let mut resolved_effort: Option<ReasoningEffort>;
-        let resolved_brain_id: String;
-        let mut resolved_command: Option<String>;
         let role = args.role.clone().unwrap_or_else(|| "default".to_string());
 
         let cfg_for_repo = self
             .config_loader
             .load_for_repo(&repo_root)
             .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
+        let cfg = cfg_for_repo.ok_or_else(|| {
+            McpError::invalid_params(
+                "no config found (create ~/.config/three/config.json)",
+                None,
+            )
+        })?;
 
-        // Role-level policy and defaults.
-        // Default: skip git repo trust check only in read-only mode.
-        let mut codex_sandbox = CodexSandboxPolicy::ReadOnly;
-        let mut codex_ask_for_approval = Some(crate::config::CodexApprovalPolicy::Never);
-        let mut codex_bypass = false;
-        let mut codex_skip_git = true;
-        let mut role_timeout_secs: Option<u64> = None;
-
-        if let Some(cfg) = cfg_for_repo.as_ref() {
-            if let Some(rc) = cfg.roles.get(role.as_str()) {
-                codex_sandbox = rc.policy.codex.sandbox;
-                codex_ask_for_approval = rc.policy.codex.ask_for_approval;
-                codex_bypass = rc.policy.codex.dangerously_bypass_approvals_and_sandbox;
-                codex_skip_git = rc.policy.codex.skip_git_repo_check.unwrap_or(matches!(
-                    codex_sandbox,
-                    CodexSandboxPolicy::ReadOnly
-                ));
-                role_timeout_secs = rc.timeout_secs;
-            }
-        }
-
-        if let Some(cfg) = cfg_for_repo.as_ref() {
-            if args.brain.is_some() || args.role.is_some() {
-                let rp = cfg
-                    .resolve_profile(args.role.as_deref(), args.brain.as_deref())
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                resolved_backend = rp.profile.backend;
-                resolved_backend_id = rp.profile.backend_id.clone();
-                resolved_command = rp.profile.command.clone();
-                resolved_model = rp.profile.model;
-                resolved_effort = rp.profile.reasoning_effort;
-                resolved_brain_id = rp.brain_id;
-            } else {
-                // Config present but not used.
-                (resolved_backend, resolved_backend_id, resolved_command, resolved_model, resolved_effort, resolved_brain_id) =
-                    resolve_explicit_profile(&args).map_err(|e| McpError::invalid_params(e, None))?;
-            }
-        } else {
-            (resolved_backend, resolved_backend_id, resolved_command, resolved_model, resolved_effort, resolved_brain_id) =
-                resolve_explicit_profile(&args).map_err(|e| McpError::invalid_params(e, None))?;
-        }
-
-        // Optional persona injection (shared config is the source of truth).
-        // Precedence:
-        // 1) roles.<role>.prompt
-        // 2) roles.<role>.persona -> personas.<id>.prompt
+        let rp = cfg
+            .resolve_profile(args.role.as_deref(), args.brain.as_deref())
+            .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+        let mut prompt_text = args.prompt.clone();
         if !prompt_text.contains("[THREE_PERSONA") {
-            if let Some(cfg) = cfg_for_repo.as_ref() {
-                if let Some(role_cfg) = cfg.roles.get(role.as_str()) {
-                    // Prefer inline role prompt.
-                    let inline = role_cfg
-                        .prompt
-                        .as_deref()
-                        .map(|s| s.trim())
-                        .filter(|s| !s.is_empty())
-                        .map(|s| ("role".to_string(), s.to_string()));
+            let ptext = rp.profile.personas.prompt.trim();
+            if !ptext.is_empty() {
+                let bid = rp.brain_id.as_str();
+                prompt_text = format!(
+                    "[THREE_PERSONA id={bid}]
+{ptext}
+[/THREE_PERSONA]
 
-                    let library = role_cfg
-                        .persona
-                        .as_deref()
-                        .and_then(|id| {
-                            cfg.personas
-                                .get(id)
-                                .and_then(|p| p.prompt.as_deref())
-                                .map(|t| (id.to_string(), t.to_string()))
-                        });
-
-                    if let Some((pid, ptext)) = inline.or(library) {
-                        let ptext = ptext.trim();
-                        if !ptext.is_empty() {
-                            let role_id = role.as_str();
-                            prompt_text = format!(
-                                "[THREE_PERSONA id={pid} role={role_id}]\n{ptext}\n[/THREE_PERSONA]\n\n{prompt_text}"
-                            );
-                        }
-                    }
-                }
+{prompt_text}"
+                );
             }
-        }
-
-        // Explicit args override config, when provided.
-        if let Some(model) = args.model.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            resolved_model = Some(model.to_string());
-        }
-        if let Some(eff) = args.reasoning_effort.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            resolved_effort = Some(parse_effort(eff).map_err(|e| McpError::invalid_params(e, None))?);
-        }
-        if let Some(backend) = args.backend.as_ref().map(|s| s.trim()).filter(|s| !s.is_empty()) {
-            let (runner, backend_id) =
-                parse_backend_id(backend).map_err(|e| McpError::invalid_params(e, None))?;
-            resolved_backend = runner;
-            resolved_backend_id = backend_id.clone();
-            resolved_command = default_command_for_backend_id(&backend_id);
         }
 
         let session_key = args
@@ -845,177 +664,58 @@ impl VibeServer {
             .as_ref()
             .map(|s| s.trim().to_string())
             .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| SessionStore::compute_key(&repo_root, &role, &resolved_brain_id));
+            .unwrap_or_else(|| SessionStore::compute_key(&repo_root, &role, &rp.brain_id));
         let _key_lock = self
             .store
             .acquire_key_lock(&session_key)
             .map_err(|e| McpError::internal_error(e.to_string(), None))?;
 
-        let timeout_secs = args.timeout_secs.or(role_timeout_secs).unwrap_or(600);
+        let timeout_secs = args.timeout_secs.unwrap_or(600);
 
         let prev_rec = self.store.get(&session_key).ok().flatten();
+        let supports_session = rp.profile.adapter.output_parser.supports_session();
         let mut resumed = false;
-        let mut session_id_to_use: Option<String> = None;
-        let mut sampling_history_to_use: Vec<crate::session_store::SamplingHistoryMessage> = Vec::new();
-
-        match resolved_backend {
-            Backend::Codex | Backend::Gemini => {
-                session_id_to_use = args.session_id.clone().filter(|s| !s.trim().is_empty());
-                if session_id_to_use.is_none() && !args.force_new_session {
-                    if let Some(rec) = prev_rec {
-                        if rec.backend == resolved_backend {
-                            session_id_to_use = Some(rec.backend_session_id);
-                            resumed = true;
-                        }
-                    }
-                }
-            }
-            Backend::Claude => {
-                if !args.force_new_session {
-                    if let Some(rec) = prev_rec {
-                        if rec.backend == Backend::Claude && !rec.sampling_history.is_empty() {
-                            sampling_history_to_use = rec.sampling_history;
-                            resumed = true;
-                        }
+        let mut session_id_to_use = args.session_id.clone().filter(|s| !s.trim().is_empty());
+        if session_id_to_use.is_none() && !args.force_new_session && supports_session {
+            if let Some(rec) = prev_rec {
+                if rec.backend == rp.profile.backend {
+                    let prev_id = rec.backend_session_id.trim();
+                    if !prev_id.is_empty() && prev_id != "stateless" {
+                        session_id_to_use = Some(rec.backend_session_id);
+                        resumed = true;
                     }
                 }
             }
         }
 
-        let mut model_used: Option<String> = resolved_model.clone();
-        let mut sampling_history_to_save: Vec<crate::session_store::SamplingHistoryMessage> =
-            Vec::new();
+        let r = backend::run(backend::GenericOptions {
+            backend_id: rp.profile.backend_id.clone(),
+            adapter: rp.profile.adapter.clone(),
+            prompt: prompt_text.clone(),
+            workdir: repo_root.clone(),
+            session_id: session_id_to_use,
+            model: rp.profile.model.clone(),
+            options: rp.profile.options.clone(),
+            capabilities: rp.profile.capabilities.clone(),
+            timeout_secs,
+        })
+        .await
+        .map_err(|e| McpError::internal_error(format!("backend failed: {e}"), None))?;
 
-        let (backend_session_id, agent_messages, warnings) = match resolved_backend {
-            Backend::Codex => {
-                let r = backends::codex::run(backends::codex::CodexOptions {
-                    command: resolved_command.clone(),
-                    prompt: prompt_text.clone(),
-                    workdir: repo_root.clone(),
-                    session_id: session_id_to_use,
-                    model: resolved_model.clone(),
-                    reasoning_effort: resolved_effort,
-                    sandbox: codex_sandbox,
-                    ask_for_approval: codex_ask_for_approval,
-                    dangerously_bypass_approvals_and_sandbox: codex_bypass,
-                    skip_git_repo_check: codex_skip_git,
-                    timeout_secs,
-                })
-                .await
-                .map_err(|e| McpError::internal_error(format!("codex failed: {e}"), None))?;
-                (r.session_id, r.agent_messages, r.warnings)
-            }
-            Backend::Gemini => {
-                let r = backends::gemini::run(backends::gemini::GeminiOptions {
-                    command: resolved_command.clone(),
-                    prompt: prompt_text.clone(),
-                    workdir: repo_root.clone(),
-                    session_id: session_id_to_use,
-                    model: resolved_model.clone(),
-                    timeout_secs,
-                })
-                .await
-                .map_err(|e| McpError::internal_error(format!("gemini failed: {e}"), None))?;
-                (r.session_id, r.agent_messages, r.warnings)
-            }
-            Backend::Claude => {
-                let peer = peer.ok_or_else(|| {
-                    McpError::internal_error(
-                        "backend=claude requires a host client that supports sampling/createMessage"
-                            .to_string(),
-                        None,
-                    )
-                })?;
+        let backend_session_id = r.session_id;
+        let agent_messages = r.agent_messages;
+        let warnings = r.warnings;
 
-                // Build conversation history from persisted sampling_history.
-                let mut messages: Vec<SamplingMessage> = Vec::new();
-                for m in &sampling_history_to_use {
-                    let role = match m.role.as_str() {
-                        "assistant" => Role::Assistant,
-                        _ => Role::User,
-                    };
-                    messages.push(SamplingMessage {
-                        role,
-                        content: Content::text(&m.content),
-                    });
-                }
-                messages.push(SamplingMessage {
-                    role: Role::User,
-                    content: Content::text(prompt_text.clone()),
-                });
-
-                let prefs = model_used.as_ref().map(|h| ModelPreferences {
-                    hints: Some(vec![ModelHint {
-                        name: Some(h.clone()),
-                    }]),
-                    cost_priority: None,
-                    speed_priority: None,
-                    intelligence_priority: None,
-                });
-
-                let fut = peer.create_message(CreateMessageRequestParams {
-                    meta: None,
-                    task: None,
-                    messages: messages.clone(),
-                    model_preferences: prefs,
-                    system_prompt: None,
-                    include_context: Some(ContextInclusion::None),
-                    temperature: None,
-                    max_tokens: 1024,
-                    stop_sequences: None,
-                    metadata: None,
-                });
-
-                let resp = tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), fut)
-                    .await
-                    .map_err(|_| {
-                        McpError::internal_error("claude sampling timed out".to_string(), None)
-                    })
-                    .and_then(|r| {
-                        r.map_err(|e| {
-                            McpError::internal_error(format!("claude sampling failed: {e}"), None)
-                        })
-                    })?;
-
-                let text = resp
-                    .message
-                    .content
-                    .as_text()
-                    .map(|t| t.text.clone())
-                    .unwrap_or_default();
-
-                model_used = Some(resp.model);
-
-                // Persist minimal sampling history: append user + assistant, cap size.
-                let mut hist = sampling_history_to_use;
-                hist.push(crate::session_store::SamplingHistoryMessage {
-                    role: "user".to_string(),
-                    content: prompt_text.clone(),
-                });
-                hist.push(crate::session_store::SamplingHistoryMessage {
-                    role: "assistant".to_string(),
-                    content: text.clone(),
-                });
-                if hist.len() > 20 {
-                    hist = hist.split_off(hist.len() - 20);
-                }
-                sampling_history_to_save = hist;
-
-                ("sampling".to_string(), text, None)
-            }
-        };
-
-        // Persist session id
         self.store
             .put(
                 &session_key,
                 SessionRecord {
                     repo_root: repo_root.to_string_lossy().to_string(),
                     role: role.clone(),
-                    brain_id: resolved_brain_id.clone(),
-                    backend: resolved_backend,
+                    brain_id: rp.brain_id.clone(),
+                    backend: rp.profile.backend,
                     backend_session_id: backend_session_id.clone(),
-                    sampling_history: sampling_history_to_save,
+                    sampling_history: Vec::new(),
                     updated_at_unix_secs: now_unix_secs(),
                 },
             )
@@ -1061,14 +761,12 @@ impl VibeServer {
                 }
             }
 
-            // Contract gate: missing patch/citations always fails.
             if !contract_errors.is_empty() {
                 error = Some(format!(
                     "output contract violation: {}",
                     contract_errors.join(", ")
                 ));
             }
-            // If patch validation requested, require it to pass.
             if args.validate_patch {
                 if patch_apply_check_ok != Some(true) {
                     let msg = patch_apply_check_output
@@ -1081,27 +779,10 @@ impl VibeServer {
 
         let out = VibeOutput {
             success: error.is_none(),
-            backend: resolved_backend_id,
+            backend: rp.profile.backend_id.clone(),
             role,
-            brain_id: resolved_brain_id,
-            model: model_used,
-            reasoning_effort: resolved_effort.map(|e| e.as_codex_config_value().to_string()),
-            codex_sandbox: match resolved_backend {
-                Backend::Codex => Some(codex_sandbox_str(codex_sandbox).to_string()),
-                Backend::Gemini | Backend::Claude => None,
-            },
-            codex_ask_for_approval: match resolved_backend {
-                Backend::Codex => codex_ask_for_approval.map(|p| codex_approval_str(p).to_string()),
-                Backend::Gemini | Backend::Claude => None,
-            },
-            codex_dangerously_bypass_approvals_and_sandbox: match resolved_backend {
-                Backend::Codex => Some(codex_bypass),
-                Backend::Gemini | Backend::Claude => None,
-            },
-            codex_skip_git_repo_check: match resolved_backend {
-                Backend::Codex => Some(codex_skip_git),
-                Backend::Gemini | Backend::Claude => None,
-            },
+            brain_id: rp.brain_id,
+            model: Some(rp.profile.model.clone()),
             session_key,
             resumed,
             backend_session_id,
@@ -1119,6 +800,7 @@ impl VibeServer {
 
         Ok(out)
     }
+
 }
 
 #[tool_handler]
@@ -1136,85 +818,8 @@ impl ServerHandler for VibeServer {
     }
 }
 
-fn resolve_explicit_profile(
-    args: &VibeArgs,
-) -> std::result::Result<
-    (
-        Backend,
-        String,
-        Option<String>,
-        Option<String>,
-        Option<ReasoningEffort>,
-        String,
-    ),
-    String,
-> {
-    let backend_str = args
-        .backend
-        .as_ref()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .ok_or_else(|| "backend is required when no config role/brain is provided".to_string())?;
-    let (backend, backend_id) = parse_backend_id(&backend_str)?;
-    let model = args.model.as_ref().map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
-    let effort = args
-        .reasoning_effort
-        .as_ref()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .map(|s| parse_effort(&s))
-        .transpose()?;
 
-    let brain_id = match backend {
-        Backend::Codex => {
-            let m = model.as_deref().unwrap_or("default");
-            let e = effort.map(|x| x.as_codex_config_value()).unwrap_or("default");
-            format!("{backend_id}:{m}:{e}")
-        }
-        Backend::Gemini => {
-            let m = model.as_deref().unwrap_or("default");
-            format!("{backend_id}:{m}")
-        }
-        Backend::Claude => {
-            let m = model.as_deref().unwrap_or("default");
-            format!("{backend_id}:{m}")
-        }
-    };
 
-    let command = default_command_for_backend_id(&backend_id);
-
-    Ok((backend, backend_id, command, model, effort, brain_id))
-}
-
-fn parse_backend_id(s: &str) -> std::result::Result<(Backend, String), String> {
-    match s.to_ascii_lowercase().as_str() {
-        "codex" => Ok((Backend::Codex, "codex".to_string())),
-        "opencode" => Ok((Backend::Codex, "opencode".to_string())),
-        "gemini" => Ok((Backend::Gemini, "gemini".to_string())),
-        "kimi" => Ok((Backend::Gemini, "kimi".to_string())),
-        "claude" => Ok((Backend::Claude, "claude".to_string())),
-        other => Err(format!(
-            "unknown backend: {other} (expected claude|codex|opencode|kimi|gemini)"
-        )),
-    }
-}
-
-fn default_command_for_backend_id(backend_id: &str) -> Option<String> {
-    match backend_id {
-        "opencode" | "kimi" => Some(backend_id.to_string()),
-        _ => None,
-    }
-}
-
-fn parse_effort(s: &str) -> std::result::Result<ReasoningEffort, String> {
-    match s.to_ascii_lowercase().as_str() {
-        "low" => Ok(ReasoningEffort::Low),
-        "medium" => Ok(ReasoningEffort::Medium),
-        "high" => Ok(ReasoningEffort::High),
-        "xhigh" => Ok(ReasoningEffort::Xhigh),
-        other => Err(format!("unknown reasoning_effort: {other} (expected low|medium|high|xhigh)")),
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -1223,9 +828,9 @@ mod tests {
     use std::path::Path;
     use std::process::Command;
 
-    // Note: older tests extracted tool output text; current tests call `run_vibe_internal` directly.
+    // Note: tests call `run_vibe_internal` directly.
 
-    fn write_fake_codex(bin: &Path, log: &Path, session_id: &str, agent_text: &str) {
+    fn write_fake_cli(bin: &Path, log: &Path, session_id: &str, agent_text: &str) {
         let agent_text_json = agent_text
             .replace('\\', "\\\\")
             .replace('"', "\\\"")
@@ -1249,22 +854,50 @@ mod tests {
         }
     }
 
-    fn write_cfg(path: &Path, json: &str) {
-        std::fs::write(path, json).unwrap();
-    }
-
     fn read_log(path: &Path) -> String {
         std::fs::read_to_string(path).unwrap_or_default()
     }
+
+    fn write_codex_test_config(path: &Path) {
+        let cfg = r#"{
+  "backend": {
+    "codex": {
+      "models": {
+        "gpt-5.2-codex": {
+          "options": { "model_reasoning_effort": "high" },
+          "variants": { "xhigh": { "model_reasoning_effort": "xhigh" } }
+        }
+      }
+    }
+  },
+  "brains": {
+    "oracle": {
+      "model": "codex/gpt-5.2-codex@xhigh",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#;
+        std::fs::write(path, cfg).unwrap();
+    }
+
+    fn codex_loader(cfg_path: &Path) -> ConfigLoader {
+        let (_, adapter_path) = crate::test_utils::example_config_paths();
+        ConfigLoader::new(Some(cfg_path.to_path_buf())).with_adapter_path(Some(adapter_path))
+    }
+
 
     #[tokio::test]
     async fn session_reuse_uses_stored_backend_session_id() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
+
         let store_path = td.path().join("sessions.json");
         let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(None), store.clone());
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store.clone());
 
         let fake = td.path().join("fake-codex.sh");
         let log = td.path().join("codex.log");
@@ -1283,16 +916,16 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&fake, perms).unwrap();
         }
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let args1 = VibeArgs {
             prompt: "first".to_string(),
             cd: repo.to_string_lossy().to_string(),
-            role: Some("implementer".to_string()),
-            brain: None,
-            backend: Some("codex".to_string()),
-            model: Some("gpt-5.2-codex".to_string()),
-            reasoning_effort: Some("xhigh".to_string()),
+            role: None,
+            brain: Some("oracle".to_string()),
+            backend: None,
+            model: None,
+            reasoning_effort: None,
             session_id: None,
             force_new_session: false,
             session_key: None,
@@ -1308,11 +941,11 @@ mod tests {
         let args2 = VibeArgs {
             prompt: "second".to_string(),
             cd: repo.to_string_lossy().to_string(),
-            role: Some("implementer".to_string()),
-            brain: None,
-            backend: Some("codex".to_string()),
-            model: Some("gpt-5.2-codex".to_string()),
-            reasoning_effort: Some("xhigh".to_string()),
+            role: None,
+            brain: Some("oracle".to_string()),
+            backend: None,
+            model: None,
+            reasoning_effort: None,
             session_id: None,
             force_new_session: false,
             session_key: None,
@@ -1325,15 +958,59 @@ mod tests {
         assert_eq!(out2.resumed, true);
         assert_eq!(out2.backend_session_id, "sess-2");
 
-        // Ensure resume was passed on second call
         let log_txt = std::fs::read_to_string(&log).unwrap();
         assert!(log_txt.lines().any(|l| l.contains("resume sess-1")));
 
-        // Ensure store updated to latest session
-        let brain_id = "codex:gpt-5.2-codex:xhigh";
-        let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), "implementer", brain_id);
+        let brain_id = "oracle";
+        let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), "default", brain_id);
         let rec = store.get(&key).unwrap().unwrap();
         assert_eq!(rec.backend_session_id, "sess-2");
+    }
+
+    #[tokio::test]
+    async fn adapter_renders_options_and_capabilities() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex.log");
+        write_fake_cli(&fake, &log, "sess-cfg-1", "pong");
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let out = server
+            .run_vibe_internal(None, VibeArgs {
+                prompt: "ping".to_string(),
+                cd: repo.to_string_lossy().to_string(),
+                role: None,
+                brain: Some("oracle".to_string()),
+                backend: None,
+                model: None,
+                reasoning_effort: None,
+                session_id: None,
+                force_new_session: true,
+                session_key: None,
+                timeout_secs: Some(5),
+                contract: None,
+                validate_patch: false,
+            })
+            .await
+            .unwrap();
+
+        assert!(out.success, "error={:?}", out.error);
+        assert_eq!(out.backend, "codex");
+        assert!(out.agent_messages.contains("pong"));
+
+        let log_txt = read_log(&log);
+        assert!(log_txt.contains("--model gpt-5.2-codex"));
+        assert!(log_txt.contains("model_reasoning_effort=xhigh"));
+        assert!(!log_txt.contains("--dangerously-bypass-approvals-and-sandbox"));
     }
 
     #[tokio::test]
@@ -1344,7 +1021,9 @@ mod tests {
 
         let store_path = td.path().join("sessions.json");
         let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(None), store);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
 
         let fake = td.path().join("fake-codex.sh");
         let script = "#!/bin/sh\nset -e\necho '{\"type\":\"thread.started\",\"thread_id\":\"sess-x\"}'\necho '{\"type\":\"item.completed\",\"item\":{\"type\":\"agent_message\",\"text\":\"no patch here\"}}'\n";
@@ -1359,15 +1038,15 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&fake, perms).unwrap();
         }
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let out = server
             .run_vibe_internal(None, VibeArgs {
                 prompt: "do".to_string(),
                 cd: repo.to_string_lossy().to_string(),
-                role: Some("reviewer".to_string()),
-                brain: None,
-                backend: Some("codex".to_string()),
+                role: None,
+                brain: Some("oracle".to_string()),
+                backend: None,
                 model: None,
                 reasoning_effort: None,
                 session_id: None,
@@ -1423,11 +1102,12 @@ mod tests {
 
         let store_path = td.path().join("sessions.json");
         let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(None), store);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
 
         let fake = td.path().join("fake-codex.sh");
 
-        // Patch applies to baseline hello.txt: hi -> hello
         let agent_text = "CITATIONS:\n- hello.txt:1\n\nPATCH:\n```diff\ndiff --git a/hello.txt b/hello.txt\n--- a/hello.txt\n+++ b/hello.txt\n@@ -1 +1 @@\n-hi\n+hello\n```\n";
         let agent_text_json = agent_text
             .replace('\\', "\\\\")
@@ -1449,15 +1129,15 @@ mod tests {
             perms.set_mode(0o755);
             std::fs::set_permissions(&fake, perms).unwrap();
         }
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
 
         let out = server
             .run_vibe_internal(None, VibeArgs {
                 prompt: "do".to_string(),
                 cd: repo.to_string_lossy().to_string(),
-                role: Some("implementer".to_string()),
-                brain: None,
-                backend: Some("codex".to_string()),
+                role: None,
+                brain: Some("oracle".to_string()),
+                backend: None,
                 model: None,
                 reasoning_effort: None,
                 session_id: None,
@@ -1474,335 +1154,4 @@ mod tests {
         assert_eq!(out.patch_apply_check_ok, Some(true));
     }
 
-    #[tokio::test]
-    async fn role_policy_overrides_codex_sandbox_and_approval() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let user_cfg = td.path().join("user-config.json");
-        std::fs::write(
-            &user_cfg,
-            r#"{
-  "provider": {
-    "codex": {
-      "type": "codex-cli",
-      "models": {
-        "m": {"id":"gpt-5.2", "options": {"reasoningEffort":"high"}}
-      }
-    }
-  },
-  "roles": {
-    "implementer": {
-      "model": "codex.m",
-      "policy": {"codex": {"sandbox": "workspace-write", "ask_for_approval": "never"}}
-    }
-  }
-}"#,
-        )
-        .unwrap();
-
-        let store_path = td.path().join("sessions.json");
-        let store = SessionStore::new(store_path);
-        let loader = ConfigLoader::new(Some(user_cfg));
-        let server = VibeServer::new(loader, store);
-
-        let fake = td.path().join("fake-codex.sh");
-        let log = td.path().join("codex.log");
-        let script = format!(
-            "#!/bin/sh\nset -e\n\n# log args for inspection\necho \"ARGS: $@\" >> \"{}\"\n\n# Emit minimal codex --json stream\necho '{{\"type\":\"thread.started\",\"thread_id\":\"sess-abc\"}}'\necho '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"ok\"}}}}'\n",
-            log.display()
-        );
-        {
-            let mut f = std::fs::File::create(&fake).unwrap();
-            f.write_all(script.as_bytes()).unwrap();
-        }
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mut perms = std::fs::metadata(&fake).unwrap().permissions();
-            perms.set_mode(0o755);
-            std::fs::set_permissions(&fake, perms).unwrap();
-        }
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
-
-        let _ = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "hello".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("implementer".to_string()),
-                brain: None,
-                backend: None,
-                model: None,
-                reasoning_effort: None,
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: None,
-                validate_patch: false,
-            })
-            .await
-            .unwrap();
-
-        let log_txt = std::fs::read_to_string(&log).unwrap();
-        assert!(log_txt.contains("-s workspace-write"));
-        assert!(log_txt.contains("-a never"));
-    }
-
-    #[test]
-    fn test_claude_backend_logic_compiles() {
-        // This test ensures the Backend::Claude branch in run_vibe_internal
-        // compiles correctly with the peer argument.
-        // Real logic verification requires a full rmcp Client/Server setup.
-    }
-
-    #[tokio::test]
-    async fn cfgtest_codex_role_config_returns_response() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let cfg_path = td.path().join("three-config.json");
-        write_cfg(
-            &cfg_path,
-            r#"{
-  "backend": {
-    "codex": {
-      "type": "codex-cli",
-      "models": {
-        "gpt-5.2-codex-xhigh": {"id":"gpt-5.2-codex", "options": {"reasoningEffort":"xhigh"}},
-        "gpt-5.2-high": {"id":"gpt-5.2", "options": {"reasoningEffort":"high"}}
-      }
-    }
-  },
-  "roles": {
-    "oracle": {
-      "model": {"backend":"codex","model":"gpt-5.2-codex-xhigh"},
-      "policy": {"codex": {"sandbox":"workspace-write", "ask_for_approval":"never", "skip_git_repo_check": true}}
-    }
-  }
-}"#,
-        );
-
-        let store_path = td.path().join("sessions.json");
-        let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store);
-
-        let fake = td.path().join("fake-codex.sh");
-        let log = td.path().join("codex.log");
-        write_fake_codex(&fake, &log, "sess-cfg-1", "pong");
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
-
-        let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "ping".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("oracle".to_string()),
-                brain: None,
-                backend: None,
-                model: None,
-                reasoning_effort: None,
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: None,
-                validate_patch: false,
-            })
-            .await
-            .unwrap();
-
-        assert!(out.success, "error={:?}", out.error);
-        assert_eq!(out.backend, "codex");
-        assert!(out.agent_messages.contains("pong"));
-        assert_eq!(out.model.as_deref(), Some("gpt-5.2-codex"));
-        assert_eq!(out.reasoning_effort.as_deref(), Some("xhigh"));
-
-        let log_txt = read_log(&log);
-        assert!(log_txt.contains("-s workspace-write"));
-        assert!(log_txt.contains("-a never"));
-        assert!(log_txt.contains("--skip-git-repo-check"));
-        assert!(log_txt.contains("--model gpt-5.2-codex"));
-        assert!(log_txt.contains("model_reasoning_effort=\"xhigh\""));
-    }
-
-    #[tokio::test]
-    async fn cfgtest_codex_role_overrides_model_and_effort() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let cfg_path = td.path().join("three-config.json");
-        write_cfg(
-            &cfg_path,
-            r#"{
-  "backend": {
-    "codex": {
-      "type": "codex-cli",
-      "models": {
-        "gpt-5.2-high": {"id":"gpt-5.2", "options": {"reasoningEffort":"high"}},
-        "gpt-5.2-codex-xhigh": {"id":"gpt-5.2-codex", "options": {"reasoningEffort":"xhigh"}}
-      }
-    }
-  },
-  "roles": {
-    "sisyphus": {
-      "model": "codex.gpt-5.2-high",
-      "policy": {"codex": {"sandbox":"read-only", "ask_for_approval":"never"}}
-    }
-  }
-}"#,
-        );
-
-        let store_path = td.path().join("sessions.json");
-        let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store);
-
-        let fake = td.path().join("fake-codex.sh");
-        let log = td.path().join("codex.log");
-        write_fake_codex(&fake, &log, "sess-cfg-2", "ok");
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
-
-        let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "ping".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("sisyphus".to_string()),
-                brain: None,
-                backend: None,
-                model: Some("gpt-5.2-codex".to_string()),
-                reasoning_effort: Some("xhigh".to_string()),
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: None,
-                validate_patch: false,
-            })
-            .await
-            .unwrap();
-
-        assert!(out.success, "error={:?}", out.error);
-        assert_eq!(out.backend, "codex");
-        assert!(out.agent_messages.contains("ok"));
-        assert_eq!(out.model.as_deref(), Some("gpt-5.2-codex"));
-        assert_eq!(out.reasoning_effort.as_deref(), Some("xhigh"));
-
-        let log_txt = read_log(&log);
-        assert!(log_txt.contains("-s read-only"));
-        assert!(log_txt.contains("-a never"));
-        assert!(log_txt.contains("--skip-git-repo-check"));
-        assert!(log_txt.contains("--model gpt-5.2-codex"));
-        assert!(log_txt.contains("model_reasoning_effort=\"xhigh\""));
-    }
-
-    #[tokio::test]
-    async fn cfgtest_codex_explicit_backend_without_config() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let store_path = td.path().join("sessions.json");
-        let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(None), store);
-
-        let fake = td.path().join("fake-codex.sh");
-        let log = td.path().join("codex.log");
-        write_fake_codex(&fake, &log, "sess-cfg-3", "hi");
-        let _env = crate::test_support::scoped_codex_bin(fake.to_string_lossy().as_ref());
-
-        let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "ping".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("default".to_string()),
-                brain: None,
-                backend: Some("codex".to_string()),
-                model: Some("gpt-5.2".to_string()),
-                reasoning_effort: Some("high".to_string()),
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: None,
-                validate_patch: false,
-            })
-            .await
-            .unwrap();
-
-        assert!(out.success, "error={:?}", out.error);
-        assert_eq!(out.backend, "codex");
-        assert!(out.agent_messages.contains("hi"));
-        assert_eq!(out.model.as_deref(), Some("gpt-5.2"));
-        assert_eq!(out.reasoning_effort.as_deref(), Some("high"));
-
-        let log_txt = read_log(&log);
-        assert!(log_txt.contains("-s read-only"));
-        assert!(log_txt.contains("-a never"));
-        assert!(log_txt.contains("--skip-git-repo-check"));
-        assert!(log_txt.contains("--model gpt-5.2"));
-        assert!(log_txt.contains("model_reasoning_effort=\"high\""));
-    }
-
-    #[tokio::test]
-    async fn cfgtest_codex_command_override_from_config() {
-        let td = tempfile::tempdir().unwrap();
-        let repo = td.path().join("repo");
-        std::fs::create_dir_all(&repo).unwrap();
-
-        let cfg_path = td.path().join("three-config.json");
-        write_cfg(
-            &cfg_path,
-            &format!(
-                r#"{{
-  "backend": {{
-    "codex": {{
-      "command": "{}",
-      "models": {{
-        "m": {{"id":"gpt-5.2"}}
-      }}
-    }}
-  }},
-  "roles": {{
-    "impl": {{"model":"codex.m"}}
-  }}
-}}"#,
-                td.path().join("fake-codex.sh").display()
-            ),
-        );
-
-        let store_path = td.path().join("sessions.json");
-        let store = SessionStore::new(store_path);
-        let server = VibeServer::new(ConfigLoader::new(Some(cfg_path)), store);
-
-        let fake = td.path().join("fake-codex.sh");
-        let log = td.path().join("codex.log");
-        write_fake_codex(&fake, &log, "sess-cfg-4", "ok");
-
-        let out = server
-            .run_vibe_internal(None, VibeArgs {
-                prompt: "ping".to_string(),
-                cd: repo.to_string_lossy().to_string(),
-                role: Some("impl".to_string()),
-                brain: None,
-                backend: None,
-                model: None,
-                reasoning_effort: None,
-                session_id: None,
-                force_new_session: true,
-                session_key: None,
-                timeout_secs: Some(5),
-                contract: None,
-                validate_patch: false,
-            })
-            .await
-            .unwrap();
-
-        assert!(out.success, "error={:?}", out.error);
-        assert!(out.agent_messages.contains("ok"));
-
-        let log_txt = read_log(&log);
-        assert!(log_txt.contains("--model gpt-5.2"));
-    }
 }

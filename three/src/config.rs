@@ -5,230 +5,249 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct VibeConfig {
-    #[serde(default)]
-    pub brains: BTreeMap<String, BrainProfile>,
-    #[serde(default)]
-    pub roles: BTreeMap<String, RoleConfig>,
-    /// Optional persona library shared with Claude Code plugins.
-    #[serde(default)]
-    pub personas: BTreeMap<String, PersonaConfig>,
+    pub backend: BTreeMap<String, BackendConfig>,
+    pub brains: BTreeMap<String, BrainConfig>,
 }
 
-// =====================
-// Config file formats
-// =====================
-
-#[derive(Debug, Clone, Deserialize)]
-struct ThreeConfigV2 {
-    #[serde(rename = "backend", alias = "provider", default)]
-    providers: BTreeMap<String, ProviderV2>,
-    #[serde(default)]
-    roles: BTreeMap<String, RoleV2>,
-    #[serde(default)]
-    personas: BTreeMap<String, PersonaConfig>,
+#[derive(Debug, Clone)]
+pub struct ConfigLoader {
+    user_config_path: Option<PathBuf>,
+    adapter_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct ProviderV2 {
-    /// Optional command override. If omitted, the backend key is used.
-    #[serde(default)]
-    command: Option<String>,
-    #[serde(default)]
-    models: BTreeMap<String, ProviderModelV2>,
-}
+impl ConfigLoader {
+    pub fn new(user_config_path: Option<PathBuf>) -> Self {
+        Self {
+            user_config_path,
+            adapter_path: None,
+        }
+    }
 
-#[derive(Debug, Clone, Deserialize)]
-struct ProviderModelV2 {
-    /// Real model id used by the underlying CLI. If omitted, the model key is used.
-    #[serde(default)]
-    #[serde(rename = "model", alias = "id")]
-    id: Option<String>,
+    pub fn with_adapter_path(mut self, adapter_path: Option<PathBuf>) -> Self {
+        self.adapter_path = adapter_path;
+        self
+    }
 
-    /// Optional per-model options.
-    #[serde(default)]
-    options: Option<serde_json::Value>,
-}
+    pub fn user_config_path(&self) -> Option<&Path> {
+        self.user_config_path.as_deref()
+    }
 
-#[derive(Debug, Clone, Deserialize)]
-struct RoleV2 {
-    /// Role selects a model from a provider.
+    pub fn adapter_path(&self) -> Option<&Path> {
+        self.adapter_path.as_deref()
+    }
+
+    pub fn project_config_paths(repo_root: &Path) -> [PathBuf; 2] {
+        // Prefer a dedicated config directory.
+        let a = repo_root.join(".three").join("config.json");
+        // Back-compat / convenience for small repos.
+        let b = repo_root.join(".three.json");
+        [a, b]
+    }
+
+    /// Load config for a repo, merging user-level config with a project override.
     ///
-    /// Examples:
-    /// - {"provider":"codex","model":"gpt-5.2-codex-xhigh"}
-    /// - "codex.gpt-5.2-codex-xhigh"
-    ///
-    /// You may also use the key name `brain` instead of `model`.
-    #[serde(alias = "brain", alias = "model")]
-    model: RoleModelRefV2,
+    /// Precedence: project overrides user. If neither exists, returns None.
+    pub fn load_for_repo(&self, repo_root: &Path) -> Result<Option<VibeConfig>> {
+        let user_cfg = match self.user_config_path() {
+            Some(p) if p.exists() => Some(VibeConfig::load(p)?),
+            _ => None,
+        };
 
-    #[serde(default)]
-    policy: RolePolicy,
-    #[serde(default)]
-    description: Option<String>,
-    #[serde(default)]
-    prompt: Option<String>,
-    #[serde(default)]
-    timeout_secs: Option<u64>,
+        let mut project_cfg: Option<VibeConfig> = None;
+        for p in Self::project_config_paths(repo_root) {
+            if p.exists() {
+                project_cfg =
+                    Some(VibeConfig::load(&p).with_context(|| {
+                        format!("failed to load project config: {}", p.display())
+                    })?);
+                break;
+            }
+        }
 
-    /// Optional persona reference (top-level `personas.{id}`)
-    #[serde(default)]
-    persona: Option<String>,
+        let mut cfg = match (user_cfg, project_cfg) {
+            (None, None) => None,
+            (Some(u), None) => Some(u),
+            (None, Some(p)) => Some(p),
+            (Some(u), Some(p)) => Some(merge_config(u, p)),
+        };
+
+        if let Some(ref mut cfg_val) = cfg {
+            if let Some(catalog) = load_adapter_catalog(self.adapter_path())? {
+                apply_adapter_catalog(cfg_val, &catalog);
+            }
+        }
+
+        Ok(cfg)
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-#[serde(untagged)]
-enum RoleModelRefV2 {
-    Qualified(String),
-    Object {
-        #[serde(alias = "backend")]
-        provider: String,
-        model: String,
+pub struct BackendConfig {
+    #[serde(default)]
+    pub adapter: Option<AdapterConfig>,
+    #[serde(default)]
+    pub models: BTreeMap<String, ModelConfig>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdapterConfig {
+    pub args_template: Vec<String>,
+    pub output_parser: OutputParserConfig,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum OutputParserConfig {
+    JsonStream {
+        session_id_path: String,
+        message_path: String,
+        #[serde(default)]
+        pick: Option<OutputPick>,
     },
+    JsonObject {
+        message_path: String,
+        #[serde(default)]
+        session_id_path: Option<String>,
+    },
+    Regex {
+        session_id_pattern: String,
+        message_capture_group: usize,
+    },
+    Text,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum OutputPick {
+    First,
+    Last,
+}
+
+impl Default for OutputPick {
+    fn default() -> Self {
+        Self::Last
+    }
+}
+
+impl OutputParserConfig {
+    pub fn supports_session(&self) -> bool {
+        match self {
+            OutputParserConfig::JsonStream { .. } => true,
+            OutputParserConfig::Regex { .. } => true,
+            OutputParserConfig::JsonObject { session_id_path, .. } => session_id_path
+                .as_ref()
+                .map(|p| !p.trim().is_empty())
+                .unwrap_or(false),
+            OutputParserConfig::Text => false,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Deserialize)]
-pub struct RoleConfig {
-    pub brain: String,
-    /// Role-level policy (e.g., read vs write) independent of model choice.
+pub struct ModelConfig {
     #[serde(default)]
-    pub policy: RolePolicy,
-    /// Optional role description (plugin/UI).
+    pub options: BTreeMap<String, OptionValue>,
     #[serde(default)]
-    pub description: Option<String>,
-    /// Optional role prompt (persona) to inject ahead of tool prompts.
-    ///
-    /// If set, this takes precedence over `persona`.
-    #[serde(default)]
-    pub prompt: Option<String>,
-    /// Optional per-role timeout (seconds) used when the tool call does not specify `timeout_secs`.
-    #[serde(default)]
-    pub timeout_secs: Option<u64>,
-    /// Optional persona id (references `personas.{id}`) to provide role instructions.
-    #[serde(default)]
-    pub persona: Option<String>,
+    pub variants: BTreeMap<String, BTreeMap<String, OptionValue>>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(untagged)]
+pub enum OptionValue {
+    Bool(bool),
+    Number(serde_json::Number),
+    String(String),
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BrainConfig {
+    pub model: String,
+    pub personas: PersonaConfig,
+    pub capabilities: Capabilities,
 }
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct PersonaConfig {
-    #[serde(default)]
-    pub description: Option<String>,
-    #[serde(default)]
-    pub prompt: Option<String>,
+    pub description: String,
+    pub prompt: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct RolePolicy {
-    #[serde(default)]
-    pub codex: CodexRolePolicy,
-}
-
-impl Default for RolePolicy {
-    fn default() -> Self {
-        Self {
-            codex: CodexRolePolicy::default(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Deserialize)]
-pub struct CodexRolePolicy {
-    #[serde(default)]
-    pub sandbox: CodexSandboxPolicy,
-    #[serde(default)]
-    pub ask_for_approval: Option<CodexApprovalPolicy>,
-    /// If true, pass `--dangerously-bypass-approvals-and-sandbox`.
-    ///
-    /// WARNING: this removes sandbox boundaries and approvals.
-    #[serde(default)]
-    pub dangerously_bypass_approvals_and_sandbox: bool,
-    /// If true, pass `--skip-git-repo-check` to codex.
-    ///
-    /// Default behavior (when unset): true for read-only sandbox, false otherwise.
-    #[serde(default)]
-    pub skip_git_repo_check: Option<bool>,
-}
-
-impl Default for CodexRolePolicy {
-    fn default() -> Self {
-        Self {
-            sandbox: CodexSandboxPolicy::ReadOnly,
-            // Default to non-interactive automation. Users can override.
-            ask_for_approval: Some(CodexApprovalPolicy::Never),
-            dangerously_bypass_approvals_and_sandbox: false,
-            skip_git_repo_check: None,
-        }
-    }
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Capabilities {
+    pub filesystem: FilesystemCapability,
+    pub shell: ShellCapability,
+    pub network: NetworkCapability,
+    pub tools: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum CodexSandboxPolicy {
+pub enum FilesystemCapability {
     ReadOnly,
-    WorkspaceWrite,
-    DangerFullAccess,
-}
-
-impl Default for CodexSandboxPolicy {
-    fn default() -> Self {
-        Self::ReadOnly
-    }
+    ReadWrite,
+    Deny,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum CodexApprovalPolicy {
-    Untrusted,
-    OnFailure,
-    OnRequest,
-    Never,
+pub enum ShellCapability {
+    Allow,
+    Deny,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct BrainProfile {
-    pub backend: Backend,
-    /// Backend id (same as top-level key: codex|gemini|claude|opencode|kimi).
-    pub backend_id: String,
-    /// Command to execute for CLI-based backends.
-    pub command: Option<String>,
-    #[serde(default)]
-    pub model: Option<String>,
-    #[serde(default)]
-    pub reasoning_effort: Option<ReasoningEffort>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NetworkCapability {
+    Allow,
+    Deny,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    Codex,
-    Gemini,
     Claude,
+    Codex,
+    Opencode,
+    Kimi,
+    Gemini,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum ReasoningEffort {
-    Low,
-    Medium,
-    High,
-    Xhigh,
-}
+impl Backend {
+    fn parse(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "claude" => Some(Self::Claude),
+            "codex" => Some(Self::Codex),
+            "opencode" => Some(Self::Opencode),
+            "kimi" => Some(Self::Kimi),
+            "gemini" => Some(Self::Gemini),
+            _ => None,
+        }
+    }
 
-impl ReasoningEffort {
-    pub fn as_codex_config_value(&self) -> &'static str {
+    pub fn as_str(&self) -> &'static str {
         match self {
-            Self::Low => "low",
-            Self::Medium => "medium",
-            Self::High => "high",
-            Self::Xhigh => "xhigh",
+            Self::Claude => "claude",
+            Self::Codex => "codex",
+            Self::Opencode => "opencode",
+            Self::Kimi => "kimi",
+            Self::Gemini => "gemini",
         }
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct BrainProfile {
+    pub backend: Backend,
+    pub backend_id: String,
+    pub model: String,
+    pub options: BTreeMap<String, OptionValue>,
+    pub capabilities: Capabilities,
+    pub personas: PersonaConfig,
+    pub adapter: AdapterConfig,
+}
+
 impl VibeConfig {
     pub fn default_path() -> Option<PathBuf> {
-        // Prefer XDG-style config layout for consistency with other CLIs.
-        // - $XDG_CONFIG_HOME/three/config.json
-        // - ~/.config/three/config.json
         if let Some(base) = std::env::var_os("XDG_CONFIG_HOME") {
             return Some(PathBuf::from(base).join("three").join("config.json"));
         }
@@ -242,40 +261,26 @@ impl VibeConfig {
 
         let v: serde_json::Value = serde_json::from_str(&raw)
             .with_context(|| format!("failed to parse config JSON: {}", path.display()))?;
+        let obj = v
+            .as_object()
+            .ok_or_else(|| anyhow!("invalid config: expected a JSON object"))?;
 
-        let is_v2 = v.get("backend").is_some()
-            || v.get("provider").is_some()
-            || v.get("providers").is_some();
-        if !is_v2 {
-            return Err(anyhow!(
-                "invalid config: missing 'backend' object (v2 schema required)"
-            ));
-        }
-
-        // Support both `backend` (preferred) and legacy `provider`/`providers` as aliases.
-        let mut v2_value = v;
-        if v2_value.get("backend").is_none() {
-            // provider -> backend
-            if let Some(p) = v2_value.get("provider").cloned() {
-                if let Some(obj) = v2_value.as_object_mut() {
-                    obj.insert("backend".to_string(), p);
-                    obj.remove("provider");
-                }
+        for key in obj.keys() {
+            if key != "backend" && key != "brains" {
+                return Err(anyhow!("invalid config: unexpected top-level key: {key}"));
             }
         }
-        if v2_value.get("backend").is_none() {
-            // providers -> backend
-            if let Some(p) = v2_value.get("providers").cloned() {
-                if let Some(obj) = v2_value.as_object_mut() {
-                    obj.insert("backend".to_string(), p);
-                    obj.remove("providers");
-                }
-            }
+        if !obj.contains_key("backend") {
+            return Err(anyhow!("invalid config: missing 'backend' object"));
+        }
+        if !obj.contains_key("brains") {
+            return Err(anyhow!("invalid config: missing 'brains' object"));
         }
 
-        let v2: ThreeConfigV2 = serde_json::from_value(v2_value)
-            .with_context(|| format!("failed to parse v2 config JSON: {}", path.display()))?;
-        v2.into_effective()
+        let cfg: VibeConfig = serde_json::from_value(v)
+            .with_context(|| format!("failed to parse config JSON: {}", path.display()))?;
+        cfg.validate()?;
+        Ok(cfg)
     }
 
     pub fn resolve_profile(
@@ -283,195 +288,128 @@ impl VibeConfig {
         role: Option<&str>,
         brain: Option<&str>,
     ) -> Result<ResolvedProfile> {
-        if let Some(brain_id) = brain {
-            let prof = self
-                .brains
-                .get(brain_id)
-                .ok_or_else(|| anyhow!("unknown brain profile: {brain_id}"))?
-                .clone();
-            return Ok(ResolvedProfile {
-                brain_id: brain_id.to_string(),
-                profile: prof,
-            });
-        }
+        let brain_id = brain.or(role).ok_or_else(|| {
+            anyhow!("either 'brain' or 'role' must be provided when using config")
+        })?;
+        let brain_cfg = self
+            .brains
+            .get(brain_id)
+            .ok_or_else(|| anyhow!("unknown brain profile: {brain_id}"))?;
 
-        if let Some(role_id) = role {
-            let role_cfg = self
-                .roles
-                .get(role_id)
-                .ok_or_else(|| anyhow!("unknown role: {role_id}"))?;
-            let brain_id = role_cfg.brain.as_str();
-            let prof = self
-                .brains
-                .get(brain_id)
-                .ok_or_else(|| anyhow!("role {role_id} references missing brain: {brain_id}"))?
-                .clone();
-            return Ok(ResolvedProfile {
-                brain_id: brain_id.to_string(),
-                profile: prof,
-            });
-        }
-
-        Err(anyhow!(
-            "either 'brain' or 'role' must be provided when using config"
-        ))
-    }
-}
-
-impl ThreeConfigV2 {
-    fn into_effective(self) -> Result<VibeConfig> {
-        let mut brains: BTreeMap<String, BrainProfile> = BTreeMap::new();
-
-        for (provider_id, provider) in self.providers {
-            let backend_key = parse_backend_key(&provider_id)?;
-            let backend_id = backend_key.as_str().to_string();
-            let backend = backend_key.runner();
-            let command = provider
-                .command
-                .as_deref()
-                .map(|s| s.trim())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .or_else(|| backend_key.default_command().map(|s| s.to_string()));
-
-            for (model_key, model_cfg) in provider.models {
-                let brain_id = format!("{provider_id}.{model_key}");
-                let model_id = model_cfg.id.clone().or_else(|| Some(model_key.clone()));
-
-                let reasoning_effort = match backend {
-                    Backend::Codex => extract_reasoning_effort(model_cfg.options.as_ref()),
-                    Backend::Gemini | Backend::Claude => None,
-                };
-
-                brains.insert(
-                    brain_id,
-                    BrainProfile {
-                        backend,
-                        backend_id: backend_id.clone(),
-                        command: command.clone(),
-                        model: model_id,
-                        reasoning_effort,
-                    },
-                );
+        let (backend_id, model_id, variant) = parse_brain_model_ref(&brain_cfg.model)?;
+        let backend = parse_backend_key(&backend_id)?;
+        let backend_cfg = self
+            .backend
+            .get(&backend_id)
+            .ok_or_else(|| anyhow!("missing backend config: {backend_id}"))?;
+        let adapter = backend_cfg
+            .adapter
+            .clone()
+            .ok_or_else(|| anyhow!("missing adapter config for backend: {backend_id}"))?;
+        let options = if model_id == "default" {
+            if variant.is_some() {
+                return Err(anyhow!("model 'default' does not support variants"));
             }
-        }
+            if let Some(model_cfg) = backend_cfg.models.get("default") {
+                resolve_model_options(model_cfg, None)?
+            } else {
+                BTreeMap::new()
+            }
+        } else {
+            let model_cfg = backend_cfg
+                .models
+                .get(&model_id)
+                .ok_or_else(|| anyhow!("unknown model '{model_id}' for backend '{backend_id}'"))?;
+            resolve_model_options(model_cfg, variant.as_deref())?
+        };
 
-        let mut roles: BTreeMap<String, RoleConfig> = BTreeMap::new();
-        for (role_id, role_cfg) in self.roles {
-            let (provider_id, model_key) = match role_cfg.model {
-                RoleModelRefV2::Object { provider, model } => (provider, model),
-                RoleModelRefV2::Qualified(s) => parse_qualified_ref(&s)
-                    .ok_or_else(|| anyhow!("invalid role model reference: {s}"))?,
-            };
-            let brain = format!("{provider_id}.{model_key}");
-            roles.insert(
-                role_id,
-                RoleConfig {
-                    brain,
-                    policy: role_cfg.policy,
-                    description: role_cfg.description,
-                    prompt: role_cfg.prompt,
-                    timeout_secs: role_cfg.timeout_secs,
-                    persona: role_cfg.persona,
-                },
-            );
-        }
-
-        Ok(VibeConfig {
-            brains,
-            roles,
-            personas: self.personas,
+        Ok(ResolvedProfile {
+            brain_id: brain_id.to_string(),
+            profile: BrainProfile {
+                backend,
+                backend_id: backend_id.clone(),
+                model: model_id,
+                options,
+                capabilities: brain_cfg.capabilities.clone(),
+                personas: brain_cfg.personas.clone(),
+                adapter,
+            },
         })
     }
-}
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BackendKey {
-    Claude,
-    Codex,
-    Opencode,
-    Kimi,
-    Gemini,
-}
-
-impl BackendKey {
-    fn parse(s: &str) -> Option<Self> {
-        match s.to_ascii_lowercase().as_str() {
-            "claude" => Some(Self::Claude),
-            "codex" => Some(Self::Codex),
-            "opencode" => Some(Self::Opencode),
-            "kimi" => Some(Self::Kimi),
-            "gemini" => Some(Self::Gemini),
-            _ => None,
+    fn validate(&self) -> Result<()> {
+        for backend_id in self.backend.keys() {
+            parse_backend_key(backend_id)?;
         }
-    }
-
-    fn as_str(&self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::Opencode => "opencode",
-            Self::Kimi => "kimi",
-            Self::Gemini => "gemini",
+        for (brain_id, brain) in &self.brains {
+            let (backend_id, _model_id, variant) = parse_brain_model_ref(&brain.model)
+                .with_context(|| format!("invalid brain model reference: {brain_id}"))?;
+            if let Some(v) = variant.as_deref() {
+                if v.trim().is_empty() {
+                    return Err(anyhow!("invalid brain model reference: {brain_id}"));
+                }
+            }
+            if !self.backend.contains_key(&backend_id) {
+                return Err(anyhow!(
+                    "brain {brain_id} references missing backend: {backend_id}"
+                ));
+            }
         }
-    }
-
-    fn runner(&self) -> Backend {
-        match self {
-            Self::Claude => Backend::Claude,
-            Self::Codex | Self::Opencode => Backend::Codex,
-            Self::Gemini | Self::Kimi => Backend::Gemini,
-        }
-    }
-
-    fn default_command(&self) -> Option<&'static str> {
-        match self {
-            Self::Opencode => Some("opencode"),
-            Self::Kimi => Some("kimi"),
-            Self::Claude | Self::Codex | Self::Gemini => None,
-        }
+        Ok(())
     }
 }
 
-fn parse_backend_key(provider_id: &str) -> Result<BackendKey> {
-    BackendKey::parse(provider_id).ok_or_else(|| {
+fn parse_backend_key(provider_id: &str) -> Result<Backend> {
+    Backend::parse(provider_id).ok_or_else(|| {
         anyhow!(
             "unsupported backend key: {provider_id} (expected claude|codex|opencode|kimi|gemini)"
         )
     })
 }
 
-fn parse_qualified_ref(s: &str) -> Option<(String, String)> {
-    // Accept "provider.model", "provider:model", or "provider/model".
-    for sep in ['/', '.', ':'] {
-        if let Some((a, b)) = s.split_once(sep) {
-            let a = a.trim();
-            let b = b.trim();
-            if !a.is_empty() && !b.is_empty() {
-                return Some((a.to_string(), b.to_string()));
-            }
-        }
+fn parse_brain_model_ref(s: &str) -> Result<(String, String, Option<String>)> {
+    let (backend, rest) = s
+        .split_once('/')
+        .ok_or_else(|| anyhow!("brain model reference must be 'backend/model@variant'"))?;
+    let backend = backend.trim();
+    let rest = rest.trim();
+    if backend.is_empty() || rest.is_empty() {
+        return Err(anyhow!(
+            "brain model reference must be 'backend/model@variant'"
+        ));
     }
-    None
+
+    let (model, variant) = match rest.split_once('@') {
+        Some((m, v)) => (m.trim(), Some(v.trim().to_string())),
+        None => (rest, None),
+    };
+    if model.is_empty() {
+        return Err(anyhow!(
+            "brain model reference must be 'backend/model@variant'"
+        ));
+    }
+    Ok((backend.to_string(), model.to_string(), variant))
 }
 
-fn extract_reasoning_effort(options: Option<&serde_json::Value>) -> Option<ReasoningEffort> {
-    let v = options?;
-    let obj = v.as_object()?;
-
-    // Support both naming styles.
-    let raw = obj
-        .get("reasoningEffort")
-        .and_then(|x| x.as_str())
-        .or_else(|| obj.get("reasoning_effort").and_then(|x| x.as_str()))?;
-
-    match raw.to_ascii_lowercase().as_str() {
-        "low" => Some(ReasoningEffort::Low),
-        "medium" => Some(ReasoningEffort::Medium),
-        "high" => Some(ReasoningEffort::High),
-        "xhigh" => Some(ReasoningEffort::Xhigh),
-        _ => None,
+fn resolve_model_options(
+    model_cfg: &ModelConfig,
+    variant: Option<&str>,
+) -> Result<BTreeMap<String, OptionValue>> {
+    let mut out = model_cfg.options.clone();
+    if let Some(v) = variant {
+        let v = v.trim();
+        if v.is_empty() {
+            return Err(anyhow!("variant name cannot be empty"));
+        }
+        let overrides = model_cfg
+            .variants
+            .get(v)
+            .ok_or_else(|| anyhow!("unknown variant: {v}"))?;
+        for (k, val) in overrides {
+            out.insert(k.to_string(), val.clone());
+        }
     }
+    Ok(out)
 }
 
 #[derive(Debug, Clone)]
@@ -480,9 +418,97 @@ pub struct ResolvedProfile {
     pub profile: BrainProfile,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct AdapterCatalog {
+    pub adapters: BTreeMap<String, AdapterConfig>,
+}
+
+impl AdapterCatalog {
+    pub fn default_path() -> Option<PathBuf> {
+        if let Some(base) = std::env::var_os("XDG_CONFIG_HOME") {
+            return Some(PathBuf::from(base).join("three").join("adapter.json"));
+        }
+        let home = dirs::home_dir()?;
+        Some(home.join(".config").join("three").join("adapter.json"))
+    }
+
+    pub fn load(path: &Path) -> Result<Self> {
+        let raw = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read adapter config: {}", path.display()))?;
+        let v: serde_json::Value = serde_json::from_str(&raw)
+            .with_context(|| format!("failed to parse adapter JSON: {}", path.display()))?;
+        let obj = v
+            .as_object()
+            .ok_or_else(|| anyhow!("invalid adapter config: expected a JSON object"))?;
+        for key in obj.keys() {
+            if key != "adapters" {
+                return Err(anyhow!(
+                    "invalid adapter config: unexpected top-level key: {key}"
+                ));
+            }
+        }
+        if !obj.contains_key("adapters") {
+            return Err(anyhow!("invalid adapter config: missing 'adapters' object"));
+        }
+
+        let catalog: AdapterCatalog = serde_json::from_value(v)
+            .with_context(|| format!("failed to parse adapter JSON: {}", path.display()))?;
+        for backend_id in catalog.adapters.keys() {
+            parse_backend_key(backend_id)?;
+        }
+        Ok(catalog)
+    }
+}
+
+fn merge_config(mut base: VibeConfig, overlay: VibeConfig) -> VibeConfig {
+    // Maps are merged by key; project overrides user on conflicts.
+    for (backend_id, overlay_backend) in overlay.backend {
+        match base.backend.get_mut(&backend_id) {
+            Some(base_backend) => {
+                base_backend.models.extend(overlay_backend.models);
+                if overlay_backend.adapter.is_some() {
+                    base_backend.adapter = overlay_backend.adapter;
+                }
+            }
+            None => {
+                base.backend.insert(backend_id, overlay_backend);
+            }
+        }
+    }
+    base.brains.extend(overlay.brains);
+    base
+}
+
+fn load_adapter_catalog(path: Option<&Path>) -> Result<Option<AdapterCatalog>> {
+    if let Some(p) = path {
+        if p.exists() {
+            return Ok(Some(AdapterCatalog::load(p)?));
+        }
+        return Ok(None);
+    }
+    let default_path = AdapterCatalog::default_path();
+    if let Some(p) = default_path {
+        if p.exists() {
+            return Ok(Some(AdapterCatalog::load(&p)?));
+        }
+    }
+    Ok(None)
+}
+
+fn apply_adapter_catalog(cfg: &mut VibeConfig, catalog: &AdapterCatalog) {
+    for (backend_id, backend_cfg) in cfg.backend.iter_mut() {
+        if backend_cfg.adapter.is_none() {
+            if let Some(adapter) = catalog.adapters.get(backend_id) {
+                backend_cfg.adapter = Some(adapter.clone());
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     #[test]
     fn rejects_unknown_backend_key() {
@@ -493,9 +519,17 @@ mod tests {
             r#"{
   "backend": {
     "unknown": {
+      "adapter": {"args_template":["run"], "output_parser":{"type":"regex","session_id_pattern":"x","message_capture_group":1}},
       "models": {
-        "m": {"id":"x"}
+        "m": {}
       }
+    }
+  },
+  "brains": {
+    "oracle": {
+      "model": "unknown/m",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only","shell":"deny","network":"deny","tools":["read"]}
     }
   }
 }"#,
@@ -511,7 +545,7 @@ mod tests {
     }
 
     #[test]
-    fn backend_key_sets_backend_id_and_default_command() {
+    fn loads_brain_from_brains_map() {
         let td = tempfile::tempdir().unwrap();
         let path = td.path().join("cfg.json");
         std::fs::write(
@@ -519,9 +553,15 @@ mod tests {
             r#"{
   "backend": {
     "opencode": {
-      "models": {
-        "m": {"id":"gpt-5.2"}
-      }
+      "adapter": {"args_template": ["run"], "output_parser": {"type":"regex","session_id_pattern":"x","message_capture_group":1}},
+      "models": { "opencode-gpt-5": {} }
+    }
+  },
+  "brains": {
+    "oracle": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only","shell":"deny","network":"deny","tools":["read"]}
     }
   }
 }"#,
@@ -529,8 +569,830 @@ mod tests {
         .unwrap();
 
         let cfg = VibeConfig::load(&path).unwrap();
-        let brain = cfg.brains.get("opencode.m").unwrap();
-        assert_eq!(brain.backend_id, "opencode");
-        assert_eq!(brain.command.as_deref(), Some("opencode"));
+        let resolved = cfg.resolve_profile(None, Some("oracle")).unwrap();
+        assert_eq!(resolved.brain_id, "oracle");
+        assert_eq!(resolved.profile.backend_id, "opencode");
+    }
+
+    #[test]
+    fn rejects_brain_model_without_slash_separator() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": {
+      "adapter": {"args_template": ["run"], "output_parser": {"type":"regex","session_id_pattern":"x","message_capture_group":1}},
+      "models": { "gpt-5.2": {} }
+    }
+  },
+  "brains": {
+    "oracle": {
+      "model": "codex.gpt-5.2",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only","shell":"deny","network":"deny","tools":["read"]}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = VibeConfig::load(&path).unwrap_err();
+        assert!(
+            err.to_string().contains("brain model reference"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn allows_default_model_without_backend_definition() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "kimi": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": {}
+    }
+  },
+  "brains": {
+    "reader": {
+      "model": "kimi/default",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+        let reader = cfg.resolve_profile(Some("reader"), None).unwrap();
+        assert_eq!(reader.profile.model, "default");
+        assert!(reader.profile.options.is_empty());
+    }
+
+    #[test]
+    fn example_gemini_adapter_uses_sandbox_and_prompt() {
+        let (_, path) = crate::test_utils::example_config_paths();
+        let catalog = AdapterCatalog::load(&path).unwrap();
+        let gemini = catalog.adapters.get("gemini").expect("gemini adapter");
+        let args = &gemini.args_template;
+
+        assert!(
+            args.iter().any(|token| token.contains("--sandbox")),
+            "expected --sandbox in gemini adapter args"
+        );
+        assert!(
+            args.contains(&"--prompt".to_string()),
+            "expected --prompt in gemini adapter args"
+        );
+        assert!(
+            args.contains(&"--output-format".to_string()),
+            "expected --output-format in gemini adapter args"
+        );
+        assert!(
+            args.contains(&"json".to_string()),
+            "expected json in gemini adapter args"
+        );
+    }
+
+    fn write_cfg(path: &Path, json: &str) {
+        std::fs::write(path, json).unwrap();
+    }
+
+    fn write_adapter(path: &Path, json: &str) {
+        std::fs::write(path, json).unwrap();
+    }
+
+    #[test]
+    fn applies_adapter_catalog_for_used_backend() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "gemini": {
+      "models": { "gemini-3-pro-preview": {} }
+    }
+  },
+  "brains": {
+    "reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#,
+        );
+
+        let adapter_path = td.path().join("adapter.json");
+        write_adapter(
+            &adapter_path,
+            r#"{
+  "adapters": {
+    "gemini": {
+      "args_template": ["--prompt", "{{ prompt }}"],
+      "output_parser": { "type": "json_stream", "session_id_path": "session_id", "message_path": "content" }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+        let resolved = cfg.resolve_profile(Some("reader"), None).unwrap();
+        assert_eq!(resolved.profile.backend_id, "gemini");
+    }
+
+    #[test]
+    fn missing_adapter_only_fails_when_backend_used() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "codex": { "models": { "gpt-5.2": {} } },
+    "gemini": { "models": { "gemini-3-pro-preview": {} } }
+  },
+  "brains": {
+    "writer": {
+      "model": "codex/gpt-5.2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#,
+        );
+
+        let adapter_path = td.path().join("adapter.json");
+        write_adapter(
+            &adapter_path,
+            r#"{
+  "adapters": {
+    "codex": {
+      "args_template": ["run", "{{ prompt }}"],
+      "output_parser": { "type": "json_stream", "session_id_path": "session_id", "message_path": "item.text" }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let ok = cfg.resolve_profile(Some("writer"), None);
+        assert!(ok.is_ok());
+
+        let missing = cfg.resolve_profile(Some("reader"), None);
+        assert!(missing.is_err());
+        assert!(missing
+            .unwrap_err()
+            .to_string()
+            .contains("missing adapter"));
+    }
+
+    #[test]
+    fn resolves_codex_variant_overrides_options() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "codex": {
+      "models": {
+        "gpt-5.2-codex": {
+          "options": { "model_reasoning_effort": "high" },
+          "variants": { "fast": { "model_reasoning_effort": "low" } }
+        }
+      }
+    }
+  },
+  "brains": {
+    "oracle": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "oracle-fast": {
+      "model": "codex/gpt-5.2-codex@fast",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#,
+        );
+
+        let (_, adapter_path) = crate::test_utils::example_config_paths();
+        let loader = ConfigLoader::new(Some(cfg_path)).with_adapter_path(Some(adapter_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let base = cfg.resolve_profile(Some("oracle"), None).unwrap();
+        let base_effort = base
+            .profile
+            .options
+            .get("model_reasoning_effort")
+            .and_then(|v| match v {
+                OptionValue::String(s) => Some(s.as_str()),
+                _ => None,
+            });
+        assert_eq!(base_effort, Some("high"));
+
+        let fast = cfg.resolve_profile(Some("oracle-fast"), None).unwrap();
+        let fast_effort = fast
+            .profile
+            .options
+            .get("model_reasoning_effort")
+            .and_then(|v| match v {
+                OptionValue::String(s) => Some(s.as_str()),
+                _ => None,
+            });
+        assert_eq!(fast_effort, Some("low"));
+    }
+
+    #[test]
+    fn parses_brain_capabilities_read_write() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "codex": {
+      "adapter": {
+        "args_template": ["run"],
+        "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 }
+      },
+      "models": { "gpt-5.2-codex": {} }
+    }
+  },
+  "brains": {
+    "reader": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("reader"), None).unwrap();
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
+
+        let writer = cfg.resolve_profile(Some("writer"), None).unwrap();
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+    }
+
+    #[test]
+    fn parses_capabilities_for_claude() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "claude": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "claude-opus-4-5-20251101": {} }
+    },
+    "codex": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gpt-5.2-codex": {} }
+    },
+    "gemini": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gemini-3-pro-preview": {} }
+    },
+    "opencode": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "opencode-gpt-5": {} }
+    },
+    "kimi": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "kimi-k2": {} }
+    }
+  },
+  "brains": {
+    "claude_reader": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "codex_reader": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "gemini_reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "opencode_reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "kimi_reader": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "claude_writer": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "gemini_writer": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "opencode_writer": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "kimi_writer": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("claude_reader"), None).unwrap();
+        assert_eq!(reader.profile.backend_id, "claude");
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
+
+        let writer = cfg.resolve_profile(Some("claude_writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "claude");
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+    }
+
+    #[test]
+    fn parses_capabilities_for_codex() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "claude": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "claude-opus-4-5-20251101": {} }
+    },
+    "codex": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gpt-5.2-codex": {} }
+    },
+    "gemini": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gemini-3-pro-preview": {} }
+    },
+    "opencode": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "opencode-gpt-5": {} }
+    },
+    "kimi": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "kimi-k2": {} }
+    }
+  },
+  "brains": {
+    "claude_reader": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "codex_reader": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "gemini_reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "opencode_reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "kimi_reader": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "claude_writer": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "gemini_writer": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "opencode_writer": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "kimi_writer": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("codex_reader"), None).unwrap();
+        assert_eq!(reader.profile.backend_id, "codex");
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
+
+        let writer = cfg.resolve_profile(Some("codex_writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "codex");
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+    }
+
+    #[test]
+    fn parses_capabilities_for_gemini() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "claude": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "claude-opus-4-5-20251101": {} }
+    },
+    "codex": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gpt-5.2-codex": {} }
+    },
+    "gemini": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gemini-3-pro-preview": {} }
+    },
+    "opencode": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "opencode-gpt-5": {} }
+    },
+    "kimi": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "kimi-k2": {} }
+    }
+  },
+  "brains": {
+    "claude_reader": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "codex_reader": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "gemini_reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "opencode_reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "kimi_reader": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "claude_writer": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "gemini_writer": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "opencode_writer": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "kimi_writer": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("gemini_reader"), None).unwrap();
+        assert_eq!(reader.profile.backend_id, "gemini");
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
+
+        let writer = cfg.resolve_profile(Some("gemini_writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "gemini");
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+    }
+
+    #[test]
+    fn parses_capabilities_for_opencode() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "claude": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "claude-opus-4-5-20251101": {} }
+    },
+    "codex": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gpt-5.2-codex": {} }
+    },
+    "gemini": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gemini-3-pro-preview": {} }
+    },
+    "opencode": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "opencode-gpt-5": {} }
+    },
+    "kimi": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "kimi-k2": {} }
+    }
+  },
+  "brains": {
+    "claude_reader": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "codex_reader": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "gemini_reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "opencode_reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "kimi_reader": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "claude_writer": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "gemini_writer": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "opencode_writer": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "kimi_writer": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("opencode_reader"), None).unwrap();
+        assert_eq!(reader.profile.backend_id, "opencode");
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
+
+        let writer = cfg.resolve_profile(Some("opencode_writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "opencode");
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
+    }
+
+    #[test]
+    fn parses_capabilities_for_kimi() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_cfg(
+            &cfg_path,
+            r#"{
+  "backend": {
+    "claude": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "claude-opus-4-5-20251101": {} }
+    },
+    "codex": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gpt-5.2-codex": {} }
+    },
+    "gemini": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "gemini-3-pro-preview": {} }
+    },
+    "opencode": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "opencode-gpt-5": {} }
+    },
+    "kimi": {
+      "adapter": { "args_template": ["run"], "output_parser": { "type": "regex", "session_id_pattern": "x", "message_capture_group": 1 } },
+      "models": { "kimi-k2": {} }
+    }
+  },
+  "brains": {
+    "claude_reader": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "codex_reader": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "gemini_reader": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "opencode_reader": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "kimi_reader": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    },
+    "claude_writer": {
+      "model": "claude/claude-opus-4-5-20251101",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "codex_writer": {
+      "model": "codex/gpt-5.2-codex",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "gemini_writer": {
+      "model": "gemini/gemini-3-pro-preview",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "opencode_writer": {
+      "model": "opencode/opencode-gpt-5",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    },
+    "kimi_writer": {
+      "model": "kimi/kimi-k2",
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-write", "shell": "allow", "network": "allow", "tools": ["*"] }
+    }
+  }
+}"#,
+        );
+
+        let loader = ConfigLoader::new(Some(cfg_path));
+        let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
+
+        let reader = cfg.resolve_profile(Some("kimi_reader"), None).unwrap();
+        assert_eq!(reader.profile.backend_id, "kimi");
+        assert_eq!(reader.profile.capabilities.filesystem, FilesystemCapability::ReadOnly);
+        assert_eq!(reader.profile.capabilities.shell, ShellCapability::Deny);
+        assert_eq!(reader.profile.capabilities.network, NetworkCapability::Deny);
+
+        let writer = cfg.resolve_profile(Some("kimi_writer"), None).unwrap();
+        assert_eq!(writer.profile.backend_id, "kimi");
+        assert_eq!(writer.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(writer.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(writer.profile.capabilities.network, NetworkCapability::Allow);
     }
 }

@@ -1,4 +1,5 @@
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::path::PathBuf;
 
 pub struct ScopedEnvVar {
     _lock: MutexGuard<'static, ()>,
@@ -53,4 +54,11 @@ pub fn scoped_gemini_bin(path: &str) -> ScopedEnvVar {
         key: "GEMINI_BIN",
         prev,
     }
+}
+
+pub fn example_config_paths() -> (PathBuf, PathBuf) {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    let cfg_path = root.join("examples").join("config.json");
+    let adapter_path = root.join("examples").join("adapter.json");
+    (cfg_path, adapter_path)
 }
