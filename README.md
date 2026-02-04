@@ -10,6 +10,25 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 - `three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
 - `plugins/claude-code/three/` — Claude Code plugin (slash commands + routing skill).
 
+## CLI adapter matrix
+
+All backends are driven by `adapter.json` (MiniJinja `args_template` + `output_parser`).  
+Models are referenced as `backend/model@variant` (variant optional). Variants override `options`,
+and only take effect if the adapter maps those options into CLI flags. If an adapter declares
+`filesystem_capabilities`, unsupported values fail **per brain** during `resolve_profile`.
+
+| Backend (CLI) | Filesystem capabilities | Config → CLI flags | Model id naming | Options/variants mapping | Output parser & session |
+|---|---|---|---|---|---|
+| codex | read-only, read-write | `--sandbox read-only` / `--sandbox workspace-write` | `codex/<model>@variant` | Mapped to `-c key=value` (variants become `-c`), e.g. `model_reasoning_effort`, `text_verbosity` | `json_stream` (`thread_id`, `item.text`), session supported |
+| claude | read-only, read-write | `--permission-mode plan` / `--dangerously-skip-permissions` | `claude/<model>@variant` | Not mapped by default (extend adapter) | `json_object` (`session_id`, `result`), session supported |
+| gemini | read-only, read-write | `--approval-mode plan` + `--sandbox` / `-y` | `gemini/<model>@variant` | Not mapped by default (extend adapter) | `json_object` (`session_id`, `response`), session supported |
+| opencode | read-write only | no read-only flag (read-only rejected) | `opencode/<provider>/<model>@variant` | Not mapped by default (extend adapter) | `json_stream` (`part.sessionID`, `part.text`), session supported |
+| kimi | read-write only | no read-only flag (read-only rejected) | `kimi/<model>@variant` | Not mapped by default (extend adapter) | `text` (stateless), no session id |
+
+Adapter notes:
+- `args_template` is a list of tokens; empty tokens are dropped.
+- `include_directories` is auto-derived from absolute paths in the prompt (Gemini).
+
 ## Quick start
 
 1) Build the MCP server:

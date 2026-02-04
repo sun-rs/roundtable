@@ -85,6 +85,8 @@ exec
   - `model_reasoning_effort` → `-c model_reasoning_effort=...`
   - `text_verbosity` → `-c text_verbosity=...`
 
+> **variants 最终体现在 codex 的 `-c` 参数**（即 options/variants → `-c key=value`）。
+
 > `text_verbosity` 未在官方 CLI 文档中出现，当前仅作为透传字段保留。
 
 ## Model 默认值（重要）
