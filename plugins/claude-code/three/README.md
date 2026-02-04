@@ -16,7 +16,7 @@ You should see a connected server named `three`.
 
 2. Create a user config at `~/.config/three/config.json`.
 
-Start from `three/examples/config.v2.json`.
+Start from `examples/config.json`.
 
 ## Install
 

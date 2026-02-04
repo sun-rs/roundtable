@@ -67,7 +67,7 @@ graph TD
 ### 2. Build & Install MCP Server
 
 ```bash
-# In the three/ directory
+# In the mcp-server-three/ directory
 cargo build --release
 
 Note: the compiled binary is `target/release/mcp-server-three`. The MCP server name you register can still be `three`.
@@ -164,7 +164,7 @@ Define agents under `roles.<name>`.
 ## 🛠 Development
 
 ### Project Structure
--   `three/`: Rust MCP server source code.
+-   `mcp-server-three/`: Rust MCP server source code.
 -   `plugins/claude-code/three/`: Claude Code plugin definition (commands, skills).
 
 ### Testing

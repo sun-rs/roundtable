@@ -13,8 +13,8 @@
 ### Task 1: Write failing tests for adapter-driven capability enforcement
 
 **Files:**
-- Modify: `three/src/config.rs`
-- Test: `three/src/config.rs`
+- Modify: `mcp-server-three/src/config.rs`
+- Test: `mcp-server-three/src/config.rs`
 
 **Step 1: Write the failing tests**
 Add/adjust tests so they depend on adapter capability lists:
@@ -56,8 +56,8 @@ Add a similar test for Kimi (same structure, `backend: kimi`).
 
 **Step 2: Run tests to verify failure**
 Run:
-- `cargo test -p three rejects_readonly_for_opencode_on_resolve_only`
-- `cargo test -p three rejects_readonly_for_kimi_on_resolve_only`
+- `cargo test -p mcp-server-three rejects_readonly_for_opencode_on_resolve_only`
+- `cargo test -p mcp-server-three rejects_readonly_for_kimi_on_resolve_only`
 
 Expected: FAIL because adapter capability checks are not implemented yet.
 
@@ -66,7 +66,7 @@ Expected: FAIL because adapter capability checks are not implemented yet.
 ### Task 2: Implement adapter capability parsing + per-brain validation
 
 **Files:**
-- Modify: `three/src/config.rs`
+- Modify: `mcp-server-three/src/config.rs`
 
 **Step 1: Implement minimal code**
 - Extend `AdapterConfig`:
@@ -98,8 +98,8 @@ if let Some(list) = adapter.filesystem_capabilities.as_ref() {
 
 **Step 2: Run tests to verify pass**
 Run:
-- `cargo test -p three rejects_readonly_for_opencode_on_resolve_only`
-- `cargo test -p three rejects_readonly_for_kimi_on_resolve_only`
+- `cargo test -p mcp-server-three rejects_readonly_for_opencode_on_resolve_only`
+- `cargo test -p mcp-server-three rejects_readonly_for_kimi_on_resolve_only`
 
 Expected: PASS.
 
@@ -123,7 +123,7 @@ Do the same for `kimi` (read-write only) and for `codex/claude/gemini` (read-onl
 
 **Step 2: Run adapter-related tests**
 Run:
-- `cargo test -p three config::` (or the specific tests touching adapter parsing)
+- `cargo test -p mcp-server-three config::` (or the specific tests touching adapter parsing)
 
 Expected: PASS.
 
@@ -150,14 +150,14 @@ No automated doc tests. Manually re-open files for sanity.
 
 **Step 1: Unit test sweep**
 Run:
-- `cargo test -p three opencode`
+- `cargo test -p mcp-server-three opencode`
 
 Expected: PASS.
 
 **Step 2: Optional ignored e2e**
 Run:
-- `cargo test -p three cfgtest_real_opencode_smoke -- --ignored`
-- `cargo test -p three cfgtest_real_gemini_include_directories_reads_multiple_external_files -- --ignored`
+- `cargo test -p mcp-server-three cfgtest_real_opencode_smoke -- --ignored`
+- `cargo test -p mcp-server-three cfgtest_real_gemini_include_directories_reads_multiple_external_files -- --ignored`
 
 Expected: PASS (requires working provider credentials).
 
@@ -166,7 +166,7 @@ Expected: PASS (requires working provider credentials).
 ### Task 6: Commit (optional, only if requested)
 
 ```bash
-git add docs/plans/2026-02-04-adapter-capability-validation-plan.md three/src/config.rs examples/adapter.json docs/config-schema.md docs/cli-opencode.md docs/cli-kimi.md
+git add docs/plans/2026-02-04-adapter-capability-validation-plan.md mcp-server-three/src/config.rs examples/adapter.json docs/config-schema.md docs/cli-opencode.md docs/cli-kimi.md
 
 git commit -m "feat: validate filesystem capabilities per adapter"
 ```

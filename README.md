@@ -7,7 +7,7 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 
 ## Repo layout
 
-- `three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
+- `mcp-server-three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
 - `plugins/claude-code/three/` — Claude Code plugin (slash commands + routing skill).
 
 ## CLI adapter matrix
@@ -35,7 +35,7 @@ Adapter notes:
 1) Build the MCP server:
 
 ```bash
-cd three
+cd mcp-server-three
 cargo build --release
 ```
 

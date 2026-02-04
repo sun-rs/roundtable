@@ -13,8 +13,8 @@
 ### Task 1: Write failing tests for config parsing
 
 **Files:**
-- Modify: `three/src/config.rs`
-- Test: `three/src/config.rs`
+- Modify: `mcp-server-three/src/config.rs`
+- Test: `mcp-server-three/src/config.rs`
 
 **Step 1: Write the failing tests**
 Add tests for:
@@ -31,8 +31,8 @@ Expected: FAIL due to old schema parsing.
 ### Task 2: Write failing tests for CLI rendering behavior
 
 **Files:**
-- Modify: `three/src/server.rs`
-- Test: `three/src/server.rs`
+- Modify: `mcp-server-three/src/server.rs`
+- Test: `mcp-server-three/src/server.rs`
 
 **Step 1: Write failing tests**
 Add tests ensuring:
@@ -47,7 +47,7 @@ Expected: FAIL due to no adapter rendering.
 ### Task 3: Implement new config parsing
 
 **Files:**
-- Modify: `three/src/config.rs`
+- Modify: `mcp-server-three/src/config.rs`
 
 **Step 1: Implement minimal code**
 - Replace v2 schema structs with `backend` + `brains` shape
@@ -62,9 +62,9 @@ Expected: PASS
 ### Task 4: Implement adapter-driven CLI rendering
 
 **Files:**
-- Create: `three/src/backends/generic.rs`
-- Modify: `three/src/backends/mod.rs`
-- Modify: `three/src/server.rs`
+- Create: `mcp-server-three/src/backends/generic.rs`
+- Modify: `mcp-server-three/src/backends/mod.rs`
+- Modify: `mcp-server-three/src/server.rs`
 
 **Step 1: Implement minimal code**
 - Render args via MiniJinja token list
@@ -90,7 +90,7 @@ Expected: PASS
 
 **Step 3: Commit**
 ```
-git add docs/plans/2026-02-03-config-schema-implementation-plan.md three/src/config.rs three/src/server.rs three/src/backends/* examples/config.json docs/config-schema.md
+git add docs/plans/2026-02-03-config-schema-implementation-plan.md mcp-server-three/src/config.rs mcp-server-three/src/server.rs mcp-server-three/src/backends/* examples/config.json docs/config-schema.md
 
 git commit -m "feat: refactor config schema and adapter rendering"
 ```

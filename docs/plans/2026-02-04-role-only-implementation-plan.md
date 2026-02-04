@@ -13,10 +13,10 @@
 ### Task 1: Add embedded adapter catalog and remove external adapter loading
 
 **Files:**
-- Modify: `three/src/config.rs`
-- Create: `three/src/adapter_catalog.rs` (or similar)
-- Modify: `three/src/lib.rs` (module export)
-- Modify: `three/src/test_utils.rs`
+- Modify: `mcp-server-three/src/config.rs`
+- Create: `mcp-server-three/src/adapter_catalog.rs` (or similar)
+- Modify: `mcp-server-three/src/lib.rs` (module export)
+- Modify: `mcp-server-three/src/test_utils.rs`
 
 **Step 1: Write the failing test**
 
@@ -36,19 +36,19 @@ fn loads_embedded_adapter_catalog() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p three config::tests::loads_embedded_adapter_catalog`
+Run: `cargo test -p mcp-server-three config::tests::loads_embedded_adapter_catalog`
 Expected: FAIL (adapter is None).
 
 **Step 3: Write minimal implementation**
 
-- Add a new module (e.g., `three/src/adapter_catalog.rs`) with a function that returns the embedded catalog.
+- Add a new module (e.g., `mcp-server-three/src/adapter_catalog.rs`) with a function that returns the embedded catalog.
 - In `ConfigLoader::load_for_repo`, replace `load_adapter_catalog(...)` with `embedded_adapter_catalog()`.
 - Remove `ConfigLoader.adapter_path` and any file-based adapter loading.
 
 Example skeleton:
 
 ```rust
-// three/src/adapter_catalog.rs
+// mcp-server-three/src/adapter_catalog.rs
 use crate::config::{AdapterCatalog, AdapterConfig, OutputParserConfig, OutputPick, FilesystemCapability};
 use std::collections::BTreeMap;
 
@@ -61,13 +61,13 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p three config::tests::loads_embedded_adapter_catalog`
+Run: `cargo test -p mcp-server-three config::tests::loads_embedded_adapter_catalog`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add three/src/adapter_catalog.rs three/src/lib.rs three/src/config.rs three/src/test_utils.rs
+git add mcp-server-three/src/adapter_catalog.rs mcp-server-three/src/lib.rs mcp-server-three/src/config.rs mcp-server-three/src/test_utils.rs
 git commit -m "feat: embed adapter catalog"
 ```
 
@@ -76,7 +76,7 @@ git commit -m "feat: embed adapter catalog"
 ### Task 2: Replace brains with roles in config parsing and validation
 
 **Files:**
-- Modify: `three/src/config.rs`
+- Modify: `mcp-server-three/src/config.rs`
 - Modify: `examples/config.json`
 
 **Step 1: Write the failing test**
@@ -94,7 +94,7 @@ fn rejects_missing_roles_key() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p three config::tests::rejects_missing_roles_key`
+Run: `cargo test -p mcp-server-three config::tests::rejects_missing_roles_key`
 Expected: FAIL (still expects brains).
 
 **Step 3: Write minimal implementation**
@@ -115,13 +115,13 @@ pub struct VibeConfig {
 
 **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p three config::tests::rejects_missing_roles_key`
+Run: `cargo test -p mcp-server-three config::tests::rejects_missing_roles_key`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add three/src/config.rs examples/config.json
+git add mcp-server-three/src/config.rs examples/config.json
 git commit -m "feat: rename brains to roles"
 ```
 
@@ -130,8 +130,8 @@ git commit -m "feat: rename brains to roles"
 ### Task 3: Remove brain parameters from server API and session store
 
 **Files:**
-- Modify: `three/src/server.rs`
-- Modify: `three/src/session_store.rs`
+- Modify: `mcp-server-three/src/server.rs`
+- Modify: `mcp-server-three/src/session_store.rs`
 - Modify: `plugins/claude-code/three/commands/*.md`
 - Modify: `plugins/claude-code/three/skills/three-routing/SKILL.md`
 
@@ -151,7 +151,7 @@ let args = VibeArgs {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p three server::tests::...`
+Run: `cargo test -p mcp-server-three server::tests::...`
 Expected: FAIL due to struct mismatch.
 
 **Step 3: Write minimal implementation**
@@ -164,13 +164,13 @@ Expected: FAIL due to struct mismatch.
 
 **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p three server::tests::...`
+Run: `cargo test -p mcp-server-three server::tests::...`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add three/src/server.rs three/src/session_store.rs plugins/claude-code/three/commands plugins/claude-code/three/skills/three-routing/SKILL.md
+git add mcp-server-three/src/server.rs mcp-server-three/src/session_store.rs plugins/claude-code/three/commands plugins/claude-code/three/skills/three-routing/SKILL.md
 git commit -m "feat: role-only server API"
 ```
 
@@ -179,9 +179,9 @@ git commit -m "feat: role-only server API"
 ### Task 4: Update backend rendering tests and integration tests to roles + embedded adapter
 
 **Files:**
-- Modify: `three/src/backend.rs`
-- Modify: `three/src/test_utils.rs`
-- Modify: `three/tests/*.rs`
+- Modify: `mcp-server-three/src/backend.rs`
+- Modify: `mcp-server-three/src/test_utils.rs`
+- Modify: `mcp-server-three/tests/*.rs`
 
 **Step 1: Write the failing test**
 
@@ -198,7 +198,7 @@ fn render_args_for_role(cfg_path: &Path, repo: &Path, role: &str) -> Vec<String>
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p three backend::tests::cfgtest_render_gemini_reader_args_match_example`
+Run: `cargo test -p mcp-server-three backend::tests::cfgtest_render_gemini_reader_args_match_example`
 Expected: FAIL (old signatures and adapter path).
 
 **Step 3: Write minimal implementation**
@@ -209,13 +209,13 @@ Expected: FAIL (old signatures and adapter path).
 
 **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p three backend::tests::cfgtest_render_gemini_reader_args_match_example`
+Run: `cargo test -p mcp-server-three backend::tests::cfgtest_render_gemini_reader_args_match_example`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add three/src/backend.rs three/src/test_utils.rs three/tests
+git add mcp-server-three/src/backend.rs mcp-server-three/src/test_utils.rs mcp-server-three/tests
 git commit -m "test: update role-based render and e2e"
 ```
 
@@ -236,7 +236,7 @@ Add a simple doc test or schema check if present (otherwise skip and rely on car
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p three`
+Run: `cargo test -p mcp-server-three`
 Expected: FAIL (references to adapter.json / brains in docs or tests).
 
 **Step 3: Write minimal implementation**
@@ -247,7 +247,7 @@ Expected: FAIL (references to adapter.json / brains in docs or tests).
 
 **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p three`
+Run: `cargo test -p mcp-server-three`
 Expected: PASS.
 
 **Step 5: Commit**
@@ -263,7 +263,7 @@ git commit -m "docs: role-only config and embedded adapter"
 ### Task 6: Add role capability rejection e2e
 
 **Files:**
-- Modify: `three/tests/opencode.rs` (or dedicated test file)
+- Modify: `mcp-server-three/tests/opencode.rs` (or dedicated test file)
 
 **Step 1: Write the failing test**
 
@@ -279,7 +279,7 @@ async fn e2e_role_capability_rejected() {
 
 **Step 2: Run test to verify it fails**
 
-Run: `cargo test -p three --test opencode e2e_role_capability_rejected`
+Run: `cargo test -p mcp-server-three --test opencode e2e_role_capability_rejected`
 Expected: FAIL until validation is wired to roles.
 
 **Step 3: Write minimal implementation**
@@ -288,13 +288,13 @@ Ensure validation is performed per role during `resolve_profile` and errors are 
 
 **Step 4: Run test to verify it passes**
 
-Run: `cargo test -p three --test opencode e2e_role_capability_rejected`
+Run: `cargo test -p mcp-server-three --test opencode e2e_role_capability_rejected`
 Expected: PASS.
 
 **Step 5: Commit**
 
 ```bash
-git add three/tests/opencode.rs
+git add mcp-server-three/tests/opencode.rs
 git commit -m "test: role capability rejection e2e"
 ```
 
@@ -304,12 +304,12 @@ git commit -m "test: role capability rejection e2e"
 
 **Step 1: Run unit/integration tests**
 
-Run: `cargo test -p three`
+Run: `cargo test -p mcp-server-three`
 Expected: PASS.
 
 **Step 2: Run ignored e2e tests**
 
-Run: `cargo test -p three -- --ignored --test-threads=1`
+Run: `cargo test -p mcp-server-three -- --ignored --test-threads=1`
 Expected: PASS.
 
 ---

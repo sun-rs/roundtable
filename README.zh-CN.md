@@ -7,7 +7,7 @@
 
 ## 目录结构
 
-- `three/` — MCP Server（Rust）。负责将请求路由到配置的后端，并进行会话复用。
+- `mcp-server-three/` — MCP Server（Rust）。负责将请求路由到配置的后端，并进行会话复用。
 - `plugins/claude-code/three/` — Claude Code 插件（斜杠命令 + 路由技能）。
 
 ## CLI 适配矩阵
@@ -35,7 +35,7 @@ Adapter 说明：
 1) 构建 MCP Server：
 
 ```bash
-cd three
+cd mcp-server-three
 cargo build --release
 ```
 
