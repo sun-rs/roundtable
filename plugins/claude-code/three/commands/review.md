@@ -10,7 +10,15 @@ Use this to get an adversarial review that focuses on regressions and correctnes
 
 1. Take the text after the command as the review prompt.
 
-2. Call the MCP tool `mcp__three__three` with:
+2. Call the MCP tool `mcp__three__info` with:
+   - `cd`: `.`
+
+   If the role `reviewer` is not listed, stop and explain:
+   - the role is missing in `~/.config/three/config.json`
+   - list available roles
+   - suggest either adding a `reviewer` role or choosing a different role and re-running
+
+3. Call the MCP tool `mcp__three__three` with:
    - `PROMPT`: the user's prompt
    - `cd`: `.`
    - `role`: `reviewer`
@@ -18,4 +26,4 @@ Use this to get an adversarial review that focuses on regressions and correctnes
    - `validate_patch`: `true`
    - `timeout_secs`: `180` (optional; prefer role config if set)
 
-3. Summarize findings, then include the patch output.
+4. Summarize findings, then include the patch output.

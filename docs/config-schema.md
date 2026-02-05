@@ -131,6 +131,38 @@ Timeouts resolve in this order (highest to lowest):
 3) `backend.<id>.timeout_secs`
 4) Default `600`
 
+## MCP tool parameter behavior (three)
+
+This section documents how the `three` MCP tool interprets runtime parameters.
+
+### Session key
+
+- If `session_key` is provided, it is used verbatim for persistence/locking.
+- Otherwise, the key is derived as `hash(repo_root + role + role_id)`.
+
+### Session resume
+
+`force_new_session=true` has the highest priority.
+
+- If `force_new_session=true`:
+  - Any provided `session_id` is ignored (a warning is returned).
+  - The request is treated as a new session.
+- Otherwise:
+  - If `session_id` is provided, it is treated as an explicit resume.
+  - Else if a session store record exists, it is reused (if the backend supports sessions).
+  - Kimi uses `--continue` when the store has history (no session id available).
+
+### Persona injection
+
+- Persona is injected **only** for new sessions.
+- If the request is considered a resume (explicit `session_id`, store hit, or Kimi `--continue`),
+  persona is not re-injected.
+
+### Contract and patch validation
+
+- `contract=patch_with_citations` enforces a patch + citations in the model output.
+- `validate_patch=true` runs `git apply --check` and fails the request if the patch is invalid.
+
 ## Role → CLI mapping (summary)
 
 The only per-role inputs that can reach a CLI are:

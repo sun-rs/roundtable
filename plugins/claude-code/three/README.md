@@ -35,3 +35,7 @@ claude plugin install three@three-local
 - `/three:review <task>`
 - `/three:roundtable <topic>`
 - `/three:info`
+
+Notes:
+- Some commands require specific roles (`oracle`, `sisyphus`, `reviewer`, `reader`, `moderator`).
+- If a required role is missing, the command will instruct you to add it or choose a different role.

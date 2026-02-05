@@ -10,11 +10,19 @@ Use this for architecture tradeoffs, hard debugging, or high-risk decisions.
 
 1. Take the text after the command as the task prompt.
 
-2. Call the MCP tool `mcp__three__three` with:
+2. Call the MCP tool `mcp__three__info` with:
+   - `cd`: `.`
+
+   If the role `oracle` is not listed, stop and explain:
+   - the role is missing in `~/.config/three/config.json`
+   - list available roles
+   - suggest either adding an `oracle` role or choosing a different role and re-running
+
+3. Call the MCP tool `mcp__three__three` with:
    - `PROMPT`: the user's task prompt
    - `cd`: `.`
    - `role`: `oracle`
    - `timeout_secs`: `900` (optional; prefer role config if set)
    - `force_new_session`: `true` only if the user explicitly asks to reset, or if the topic is clearly unrelated to the current thread.
 
-3. Return the result to the user. If `success=false`, explain the error and suggest a retry with `force_new_session=true`.
+4. Return the result to the user. If `success=false`, explain the error and suggest a retry with `force_new_session=true`.

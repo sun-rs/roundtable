@@ -15,6 +15,9 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 - `docs/cli-output-modes.md` — authoritative output/stream parsing rules (start here)
 - `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
 
+Note: `examples/config.json` includes a reader-role counterexample used to test capability validation.
+See `docs/config-schema.md` for MCP parameter behavior details.
+
 ## CLI adapter matrix
 
 All backends are driven by the embedded adapter catalog (MiniJinja `args_template` + `output_parser`).

@@ -634,19 +634,6 @@ impl VibeServer {
             .resolve_profile(args.role.as_deref())
             .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
         let mut prompt_text = args.prompt.clone();
-        if !prompt_text.contains("[THREE_PERSONA") {
-            let ptext = rp.profile.personas.prompt.trim();
-            if !ptext.is_empty() {
-                let bid = rp.role_id.as_str();
-                prompt_text = format!(
-                    "[THREE_PERSONA id={bid}]
-{ptext}
-[/THREE_PERSONA]
-
-{prompt_text}"
-                );
-            }
-        }
 
         let session_key = args
             .session_key
@@ -664,10 +651,26 @@ impl VibeServer {
             .or(rp.profile.timeout_secs)
             .unwrap_or(600);
 
+        let explicit_session_id = args
+            .session_id
+            .as_ref()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        let mut warning_extra: Option<String> = None;
+
         let prev_rec = self.store.get(&session_key).ok().flatten();
         let supports_session = rp.profile.adapter.output_parser.supports_session();
         let mut resumed = false;
-        let mut session_id_to_use = args.session_id.clone().filter(|s| !s.trim().is_empty());
+        let mut session_id_to_use = if args.force_new_session {
+            if let Some(sid) = explicit_session_id.as_ref() {
+                warning_extra = Some(format!(
+                    "force_new_session=true ignored provided session_id '{sid}'"
+                ));
+            }
+            None
+        } else {
+            explicit_session_id.clone()
+        };
         let mut resume_without_session = false;
         if session_id_to_use.is_none() && !args.force_new_session {
             if supports_session {
@@ -690,6 +693,21 @@ impl VibeServer {
             }
         }
 
+        let is_resuming = !args.force_new_session && (explicit_session_id.is_some() || resumed);
+        if !is_resuming && !prompt_text.contains("[THREE_PERSONA") {
+            let ptext = rp.profile.personas.prompt.trim();
+            if !ptext.is_empty() {
+                let bid = rp.role_id.as_str();
+                prompt_text = format!(
+                    "[THREE_PERSONA id={bid}]
+{ptext}
+[/THREE_PERSONA]
+
+{prompt_text}"
+                );
+            }
+        }
+
         let r = backend::run(backend::GenericOptions {
             backend_id: rp.profile.backend_id.clone(),
             adapter: rp.profile.adapter.clone(),
@@ -707,7 +725,12 @@ impl VibeServer {
 
         let backend_session_id = r.session_id;
         let agent_messages = r.agent_messages;
-        let warnings = r.warnings;
+        let warnings = match (r.warnings, warning_extra) {
+            (Some(base), Some(extra)) => Some(format!("{base}\n{extra}")),
+            (Some(base), None) => Some(base),
+            (None, Some(extra)) => Some(extra),
+            (None, None) => None,
+        };
 
         self.store
             .put(
@@ -861,6 +884,14 @@ mod tests {
         std::fs::read_to_string(path).unwrap_or_default()
     }
 
+    fn read_log_args(path: &Path) -> Vec<String> {
+        let raw = std::fs::read(path).unwrap_or_default();
+        raw.split(|b| *b == 0)
+            .filter(|chunk| !chunk.is_empty())
+            .map(|chunk| String::from_utf8_lossy(chunk).to_string())
+            .collect()
+    }
+
     fn write_codex_test_config(path: &Path) {
         let cfg = r#"{
   "backend": {
@@ -882,6 +913,25 @@ mod tests {
   }
 }"#;
         std::fs::write(path, cfg).unwrap();
+    }
+
+    fn write_fake_cli_with_arg_log(bin: &Path, log: &Path, session_id: &str) {
+        let script = format!(
+            "#!/bin/sh\nset -e\n\nprintf '%s\\0' \"$@\" > \"{}\"\n\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"{}\"}}'\nprintf '%s\\n' '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"ok\"}}}}'\n",
+            log.display(),
+            session_id
+        );
+        {
+            let mut f = std::fs::File::create(bin).unwrap();
+            f.write_all(script.as_bytes()).unwrap();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(bin).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(bin, perms).unwrap();
+        }
     }
 
     fn codex_loader(cfg_path: &Path) -> ConfigLoader {
@@ -965,6 +1015,130 @@ mod tests {
         let key = SessionStore::compute_key(&repo.canonicalize().unwrap(), role_id, role_id);
         let rec = store.get(&key).unwrap().unwrap();
         assert_eq!(rec.backend_session_id, "sess-2");
+    }
+
+    #[tokio::test]
+    async fn session_resume_skips_persona_injection() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store.clone());
+
+        let fake_first = td.path().join("fake-codex-first.sh");
+        let log_first = td.path().join("codex-first.log");
+        write_fake_cli_with_arg_log(&fake_first, &log_first, "sess-1");
+        {
+            let _env = crate::test_utils::scoped_codex_bin(fake_first.to_string_lossy().as_ref());
+            let out1 = server
+                .run_vibe_internal(
+                    None,
+                    VibeArgs {
+                        prompt: "first".to_string(),
+                        cd: repo.to_string_lossy().to_string(),
+                        role: Some("oracle".to_string()),
+                        backend: None,
+                        model: None,
+                        reasoning_effort: None,
+                        session_id: None,
+                        force_new_session: false,
+                        session_key: None,
+                        timeout_secs: Some(5),
+                        contract: None,
+                        validate_patch: false,
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(!out1.resumed);
+        }
+
+        let fake_second = td.path().join("fake-codex-second.sh");
+        let log_second = td.path().join("codex-second.log");
+        write_fake_cli_with_arg_log(&fake_second, &log_second, "sess-2");
+        {
+            let _env = crate::test_utils::scoped_codex_bin(fake_second.to_string_lossy().as_ref());
+            let out2 = server
+                .run_vibe_internal(
+                    None,
+                    VibeArgs {
+                        prompt: "second".to_string(),
+                        cd: repo.to_string_lossy().to_string(),
+                        role: Some("oracle".to_string()),
+                        backend: None,
+                        model: None,
+                        reasoning_effort: None,
+                        session_id: None,
+                        force_new_session: false,
+                        session_key: None,
+                        timeout_secs: Some(5),
+                        contract: None,
+                        validate_patch: false,
+                    },
+                )
+                .await
+                .unwrap();
+            assert!(out2.resumed);
+        }
+
+        let args = read_log_args(&log_second);
+        let prompt_arg = args.last().cloned().unwrap_or_default();
+        assert!(prompt_arg.contains("second"));
+        assert!(
+            !prompt_arg.contains("[THREE_PERSONA"),
+            "prompt should not include persona on resume: {prompt_arg}"
+        );
+    }
+
+    #[tokio::test]
+    async fn force_new_session_ignores_session_id_and_warns() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store_path = td.path().join("sessions.json");
+        let store = SessionStore::new(store_path);
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config(&cfg_path);
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex.log");
+        write_fake_cli_with_arg_log(&fake, &log, "sess-new");
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let out = server
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "fresh".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: Some("sess-123".to_string()),
+                    force_new_session: true,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: None,
+                    validate_patch: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        assert!(!out.resumed);
+        let warn = out.warnings.unwrap_or_default();
+        assert!(warn.contains("force_new_session=true"));
+        assert!(warn.contains("sess-123"));
+
+        let args = read_log_args(&log);
+        assert!(!args.iter().any(|v| v == "resume"), "args={args:?}");
     }
 
     #[tokio::test]

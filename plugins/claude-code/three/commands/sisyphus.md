@@ -15,11 +15,19 @@ Behavior:
 
 1. Take the text after the command as the task prompt.
 
-2. Decide whether this is a code-change request.
+2. Call the MCP tool `mcp__three__info` with:
+   - `cd`: `.`
+
+   If the role `sisyphus` is not listed, stop and explain:
+   - the role is missing in `~/.config/three/config.json`
+   - list available roles
+   - suggest either adding a `sisyphus` role or choosing a different role and re-running
+
+3. Decide whether this is a code-change request.
 
    Treat as code-change if the user asks to: implement, fix, refactor, rename, add, remove, update, change files, or provides a diff/stacktrace and asks for a fix.
 
-3. Call the MCP tool `mcp__three__three` with:
+4. Call the MCP tool `mcp__three__three` with:
 
    Always:
    - `PROMPT`: the user's task prompt
@@ -30,4 +38,4 @@ Behavior:
    - `contract`: `patch_with_citations`
    - `validate_patch`: `true`
 
-3. If the tool returns `success=false`, do NOT guess. Ask for clarification or rerun with a narrower scope.
+5. If the tool returns `success=false`, do NOT guess. Ask for clarification or rerun with a narrower scope.
