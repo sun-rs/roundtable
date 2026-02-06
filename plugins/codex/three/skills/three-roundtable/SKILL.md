@@ -11,6 +11,17 @@ Use this for ambiguous, high-impact, or multi-tradeoff questions.
 
 You are the conductor for this session.
 
+## Default role pool (only if enabled in config)
+
+| Role | Summary |
+| --- | --- |
+| `oracle` | Architecture, tech choices, long-term tradeoffs. |
+| `builder` | Implementation, debugging, practical feasibility. |
+| `researcher` | Evidence in code/docs/web with citations. |
+| `reviewer` | Adversarial review for correctness and risk. |
+| `critic` | Contrarian risk analysis and failure modes. |
+| `sprinter` | Fast ideation and quick options (not exhaustive). |
+
 ## Required baseline
 
 - Validate enabled roles with `mcp__three__info` first.

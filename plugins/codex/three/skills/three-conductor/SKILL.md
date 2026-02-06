@@ -19,12 +19,14 @@ Do not include persona text yourself. The MCP server injects built-in personas.
 
 ## Default role pool (only if enabled in config)
 
-- `oracle`: architecture and long-term tradeoffs
-- `builder`: implementation and debugging
-- `researcher`: code/docs/web evidence with citations
-- `reviewer`: adversarial quality checks
-- `critic`: contrarian risk analysis
-- `sprinter`: fast options and ideation
+| Role | Summary |
+| --- | --- |
+| `oracle` | Architecture, tech choices, long-term tradeoffs. |
+| `builder` | Implementation, debugging, practical feasibility. |
+| `researcher` | Evidence in code/docs/web with citations. |
+| `reviewer` | Adversarial review for correctness and risk. |
+| `critic` | Contrarian risk analysis and failure modes. |
+| `sprinter` | Fast ideation and quick options (not exhaustive). |
 
 ## Steps
 
