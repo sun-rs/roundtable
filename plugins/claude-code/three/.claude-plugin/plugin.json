@@ -2,7 +2,6 @@
   "name": "three",
   "version": "0.2.1",
   "description": "Multi-agent, multi-LLM vibe-coding orchestrator for complex software tasks.",
-  "longDescription": "Orchestrates role-based agents (Oracle, Builder, Researcher, Reviewer, Critic, Sprinter) with session-aware reuse across multiple LLMs (Codex, Gemini, Claude). Features safe capability controls, parallel fan-out, and roundtable consensus for splitting complex tasks, cross-checking results, and converging faster with clear, auditable outputs.\n\nKey Commands:\n• /three:conductor - Dispatch complex work across multiple LLMs\n• /three:roundtable - Run multi-round discussions for tough decisions\n• /three:oracle - Architecture and trade-off analysis\n• /three:builder - Implementation and debugging\n• /three:reviewer - Code review and quality checks",
   "author": {
     "name": "three"
   }
