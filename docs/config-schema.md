@@ -25,7 +25,8 @@ Each backend entry contains:
 - `timeout_secs` (optional): Default timeout in seconds for this backend.
 
 Adapter definitions are embedded in the server (no `adapter.json` config file).
-User `config.json` should not include `adapter` fields.
+User `config.json` should not include `adapter` fields unless you need to override
+advanced behavior (prompt transport or output parsing).
 
 The embedded adapter catalog defines the **allowed backend set**. `config.json`
 may use a subset of those backends. If a backend is referenced in `config.json`
@@ -53,6 +54,12 @@ Each adapter entry contains:
 - `filesystem_capabilities` (optional): List of supported filesystem values
   (`read-only`, `read-write`). If provided, roles requesting a value
   outside this list will fail during `resolve_profile`.
+- `prompt_transport` (optional): How to send prompt text to the backend.
+  - `arg` (default): pass prompt as a CLI argument (current behavior)
+  - `stdin`: write prompt to stdin (no prompt argument)
+  - `auto`: use `stdin` when prompt length exceeds `prompt_max_chars`
+- `prompt_max_chars` (optional): Max prompt length before `auto` switches to `stdin`
+  (default: `32768`).
 
 Template context variables (stable names):
 
@@ -63,6 +70,7 @@ Template context variables (stable names):
 - `options` (object; merged model options + variant overrides)
 - `capabilities` (object; from the selected role)
 - `include_directories` (string; comma-separated extra dirs inferred from prompt)
+- `prompt_transport` (string; resolved transport: `arg` or `stdin`)
 
 `output_parser` types:
 
@@ -70,6 +78,7 @@ Template context variables (stable names):
   - `session_id_path` (string)
   - `message_path` (string)
   - `pick` (string: `first` or `last`)
+  - `fallback` (string, optional): `codex` enables Codex JSONL fallback parsing
 - `json_object`
   - `message_path` (string)
   - `session_id_path` (string, optional; omit to treat as stateless)
@@ -111,13 +120,31 @@ Rules:
   - Fields:
     - `description` (string)
     - `prompt` (string)
-- `capabilities`: Required object with unified capability semantics (fields default to allow):
+- `capabilities` (optional): Unified capability semantics (fields default to allow):
   - `filesystem` (optional, default `read-write`): `read-only` | `read-write`
   - `shell` (optional, default `allow`): `allow` | `deny`
   - `network` (optional, default `allow`): `allow` | `deny`
   - `tools` (optional, default `["*"]`): list of tool names or `*`
 - `enabled` (optional, default `true`): disable a role without deleting it.
 - `timeout_secs` (optional): Override timeout in seconds for this role.
+- `fallback_models` (optional): List of fallback model references
+  (`backend/model@variant`). Fallbacks must use the same backend as `model`.
+
+Example persona override:
+
+```json
+{
+  "roles": {
+    "oracle": {
+      "model": "codex/gpt-5.2@xhigh",
+      "personas": {
+        "description": "Architecture decisions with long-term tradeoffs.",
+        "prompt": "You are Oracle. Focus on architecture, tradeoffs, and long-term risks."
+      }
+    }
+  }
+}
+```
 
 `capabilities` are semantic and are mapped to CLI flags in `adapter.args_template`.
 Adapters may optionally declare `filesystem_capabilities` to enforce supported values.
@@ -129,7 +156,7 @@ If the list exists and a role requests a filesystem capability not in the list,
 ### Top-level
 
 - Only `backend` and `roles` are recognized.
-- Other top-level keys are ignored unless they cause a type mismatch.
+- Other top-level keys cause a validation error.
 
 ### backend / models
 
@@ -193,6 +220,7 @@ The only per-role inputs that can reach a CLI are:
 - `capabilities` → passed to adapter as `capabilities.*` for flag mapping.
 - `options` / `variants` → merged into `options` and exposed to adapter.
 - `timeout_secs` → used by the server to enforce backend timeout.
+- `fallback_models` → used by the server for model fallback on model-not-found errors.
 
 Anything else must be added explicitly in the adapter template; there is no
 implicit per-role flag injection.

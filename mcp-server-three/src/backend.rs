@@ -1,4 +1,7 @@
-use crate::config::{AdapterConfig, Capabilities, OptionValue, OutputParserConfig, OutputPick};
+use crate::config::{
+    AdapterConfig, Capabilities, JsonStreamFallback, OptionValue, OutputParserConfig, OutputPick,
+    PromptTransport,
+};
 use anyhow::{anyhow, Context, Result};
 use minijinja::{context, Environment};
 use regex::Regex;
@@ -6,6 +9,7 @@ use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::{timeout, Duration};
 
@@ -30,6 +34,8 @@ pub struct GenericResult {
     pub warnings: Option<String>,
 }
 
+const DEFAULT_PROMPT_MAX_CHARS: usize = 32 * 1024;
+
 pub async fn run(opts: GenericOptions) -> Result<GenericResult> {
     let timeout_duration = Duration::from_secs(opts.timeout_secs);
     timeout(timeout_duration, run_internal(opts))
@@ -38,12 +44,17 @@ pub async fn run(opts: GenericOptions) -> Result<GenericResult> {
 }
 
 pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
+    let transport = resolve_prompt_transport(&opts.adapter, &opts.prompt);
     let env = Environment::new();
     let options_val = serde_json::to_value(&opts.options).context("serialize options")?;
     let capabilities_val = serde_json::to_value(&opts.capabilities).context("serialize capabilities")?;
     let include_directories = detect_include_directories(&opts.prompt, &opts.workdir);
+    let prompt_for_args = match transport {
+        ResolvedPromptTransport::Arg => opts.prompt.as_str(),
+        ResolvedPromptTransport::Stdin => "",
+    };
     let ctx = context! {
-        prompt => opts.prompt,
+        prompt => prompt_for_args,
         model => opts.model,
         session_id => opts.session_id,
         resume => opts.resume,
@@ -51,6 +62,7 @@ pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
         options => options_val,
         capabilities => capabilities_val,
         include_directories => include_directories,
+        prompt_transport => transport.as_str(),
     };
 
     let mut args: Vec<String> = Vec::new();
@@ -70,18 +82,36 @@ pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
 async fn run_internal(opts: GenericOptions) -> Result<GenericResult> {
     let command = resolve_command(&opts.backend_id);
     let args = render_args(&opts)?;
+    let transport = resolve_prompt_transport(&opts.adapter, &opts.prompt);
 
     let mut cmd = Command::new(command);
     cmd.args(&args)
         .current_dir(&opts.workdir)
-        .stdin(Stdio::null())
+        .stdin(match transport {
+            ResolvedPromptTransport::Arg => Stdio::null(),
+            ResolvedPromptTransport::Stdin => Stdio::piped(),
+        })
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .kill_on_drop(true);
 
-    let output = cmd.output().await.context("failed to spawn backend")?;
+    let mut child = cmd.spawn().context("failed to spawn backend")?;
+    if let ResolvedPromptTransport::Stdin = transport {
+        if let Some(mut stdin) = child.stdin.take() {
+            stdin
+                .write_all(opts.prompt.as_bytes())
+                .await
+                .context("failed to write prompt to stdin")?;
+        }
+    }
+
+    let output = child.wait_with_output().await.context("failed to spawn backend")?;
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    if let Some(model_err) = detect_model_error(&stdout, &stderr) {
+        return Err(anyhow!("model_not_found: {model_err}"));
+    }
 
     if !output.status.success() {
         let code = output.status.code().unwrap_or(-1);
@@ -111,7 +141,7 @@ fn detect_include_directories(prompt: &str, workdir: &Path) -> String {
 
     for raw in prompt.split_whitespace() {
         let token = trim_path_token(raw);
-        if token.is_empty() || !token.starts_with('/') {
+        if token.is_empty() {
             continue;
         }
         let path = PathBuf::from(token);
@@ -156,13 +186,51 @@ fn trim_path_token(raw: &str) -> String {
     trimmed.to_string()
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResolvedPromptTransport {
+    Arg,
+    Stdin,
+}
+
+impl ResolvedPromptTransport {
+    fn as_str(&self) -> &'static str {
+        match self {
+            ResolvedPromptTransport::Arg => "arg",
+            ResolvedPromptTransport::Stdin => "stdin",
+        }
+    }
+}
+
+fn resolve_prompt_transport(adapter: &AdapterConfig, prompt: &str) -> ResolvedPromptTransport {
+    let configured = adapter.prompt_transport.unwrap_or(PromptTransport::Arg);
+    match configured {
+        PromptTransport::Arg => ResolvedPromptTransport::Arg,
+        PromptTransport::Stdin => ResolvedPromptTransport::Stdin,
+        PromptTransport::Auto => {
+            let max_chars = adapter.prompt_max_chars.unwrap_or(DEFAULT_PROMPT_MAX_CHARS);
+            if prompt.len() > max_chars {
+                ResolvedPromptTransport::Stdin
+            } else {
+                ResolvedPromptTransport::Arg
+            }
+        }
+    }
+}
+
 fn parse_output(parser: &OutputParserConfig, stdout: &str) -> Result<(String, String)> {
     match parser {
         OutputParserConfig::JsonStream {
             session_id_path,
             message_path,
             pick,
-        } => parse_json_stream(stdout, session_id_path, message_path, pick.unwrap_or(OutputPick::Last)),
+            fallback,
+        } => parse_json_stream(
+            stdout,
+            session_id_path,
+            message_path,
+            pick.unwrap_or(OutputPick::Last),
+            *fallback,
+        ),
         OutputParserConfig::JsonObject {
             message_path,
             session_id_path,
@@ -175,11 +243,51 @@ fn parse_output(parser: &OutputParserConfig, stdout: &str) -> Result<(String, St
     }
 }
 
+fn detect_model_error(stdout: &str, stderr: &str) -> Option<String> {
+    let pattern = Regex::new(r"(?i)model[_\\s-]?not[_\\s-]?found|model\\s+is\\s+not\\s+supported|unknown\\s+model")
+        .ok()?;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let v: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        let ty = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+        if ty == "error" || ty == "turn.failed" {
+            let msg = v
+                .get("message")
+                .and_then(|m| m.as_str())
+                .or_else(|| {
+                    v.get("error")
+                        .and_then(|e| e.get("message"))
+                        .and_then(|m| m.as_str())
+                })
+                .unwrap_or("");
+            if pattern.is_match(msg) {
+                return Some(msg.to_string());
+            }
+        }
+    }
+
+    if pattern.is_match(stderr) {
+        return Some(stderr.trim().to_string());
+    }
+    if pattern.is_match(stdout) {
+        return Some("model_not_found".to_string());
+    }
+    None
+}
+
 fn parse_json_stream(
     stdout: &str,
     session_id_path: &str,
     message_path: &str,
     pick: OutputPick,
+    fallback: Option<JsonStreamFallback>,
 ) -> Result<(String, String)> {
     let mut session_id: Option<String> = None;
     let mut message: Option<String> = None;
@@ -189,8 +297,16 @@ fn parse_json_stream(
         if trimmed.is_empty() {
             continue;
         }
-        let v: Value = serde_json::from_str(trimmed)
-            .with_context(|| format!("failed to parse json line: {trimmed}"))?;
+        let v: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(err) => {
+                if fallback.is_some() {
+                    continue;
+                }
+                return Err(anyhow::Error::from(err))
+                    .with_context(|| format!("failed to parse json line: {trimmed}"));
+            }
+        };
 
         if let Some(val) = json_path_get(&v, session_id_path) {
             if let Some(s) = val.as_str() {
@@ -214,8 +330,67 @@ fn parse_json_stream(
     }
 
     let session_id = session_id.ok_or_else(|| anyhow!("failed to get session_id from output"))?;
-    let message = message.unwrap_or_default();
+    let mut message = message.unwrap_or_default();
+    if message.trim().is_empty() {
+        if let Some(JsonStreamFallback::Codex) = fallback {
+            if let Some(fallback_message) = parse_codex_jsonl_message(stdout) {
+                message = fallback_message;
+            }
+        }
+    }
     Ok((session_id, message))
+}
+
+fn parse_codex_jsonl_message(stdout: &str) -> Option<String> {
+    let mut messages: Vec<String> = Vec::new();
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let v: Value = match serde_json::from_str(trimmed) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        if v.get("type") == Some(&Value::String("item.completed".to_string())) {
+            if let Some(item) = v.get("item") {
+                if item.get("type") == Some(&Value::String("agent_message".to_string())) {
+                    if let Some(text) = item.get("text").and_then(|t| t.as_str()) {
+                        messages.push(text.to_string());
+                    }
+                }
+            }
+        }
+
+        if v.get("type") == Some(&Value::String("message".to_string())) {
+            if let Some(content) = v.get("content") {
+                if let Some(text) = content.as_str() {
+                    messages.push(text.to_string());
+                } else if let Some(arr) = content.as_array() {
+                    for part in arr {
+                        if part.get("type") == Some(&Value::String("text".to_string())) {
+                            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                messages.push(text.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if v.get("type") == Some(&Value::String("output_text".to_string())) {
+            if let Some(text) = v.get("text").and_then(|t| t.as_str()) {
+                messages.push(text.to_string());
+            }
+        }
+    }
+
+    if messages.is_empty() {
+        None
+    } else {
+        Some(messages.join("\n"))
+    }
 }
 
 fn parse_json_object(stdout: &str, session_id_path: Option<&str>, message_path: &str) -> Result<(String, String)> {
@@ -396,6 +571,25 @@ mod tests {
             parse_output(&OutputParserConfig::Text, "hello\n").expect("parse text");
         assert_eq!(session_id, "stateless");
         assert_eq!(message, "hello");
+    }
+
+    #[test]
+    fn cfgtest_json_stream_fallback_codex_recovers_message() {
+        let stdout = r#"{"type":"thread.started","thread_id":"sess-1"}
+{"type":"item.completed","item":{"type":"agent_message","text":"hi"}}
+"#;
+        let (session_id, message) = parse_output(
+            &OutputParserConfig::JsonStream {
+                session_id_path: "thread_id".to_string(),
+                message_path: "item.text".to_string(),
+                pick: Some(OutputPick::Last),
+                fallback: Some(JsonStreamFallback::Codex),
+            },
+            stdout,
+        )
+        .expect("parse json stream");
+        assert_eq!(session_id, "sess-1");
+        assert_eq!(message, "hi");
     }
 
     #[test]
@@ -620,7 +814,7 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
         let cfg_path = crate::test_utils::example_config_path();
         let args = render_args_for_role(&cfg_path, &repo, "researcher");
-        assert_gemini_render(&args, "gemini-3-pro-preview", true, true);
+        assert_gemini_render(&args, "gemini-3-pro-preview", false, false);
     }
 
     #[test]

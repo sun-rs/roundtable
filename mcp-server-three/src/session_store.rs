@@ -66,6 +66,11 @@ impl SessionStore {
         if let Some(base) = std::env::var_os("XDG_DATA_HOME") {
             return PathBuf::from(base).join("three").join("sessions.json");
         }
+        if cfg!(windows) {
+            if let Some(dir) = dirs::data_dir() {
+                return dir.join("three").join("sessions.json");
+            }
+        }
         let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         home.join(".local")
             .join("share")

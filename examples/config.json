@@ -20,7 +20,7 @@
             }
           }
         },
-        "gpt-5.2-codex": {
+        "gpt-5.3-codex": {
           "options": {},
           "variants": {
             "low": {
@@ -53,84 +53,35 @@
         "gemini-3-pro-preview": {},
         "gemini-3-flash-preview": {}
       }
-    },
-    "kimi": {
-      "timeout_secs": 600,
-      "models": {}
-    },
-    "opencode": {
-      "timeout_secs": 600,
-      "models": {
-        "kimi-for-coding/k2p5": {},
-        "cchGemini/gemini-3-flash-low": {},
-        "cchGemini/gemini-3-flash-medium": {},
-        "cchGemini/gemini-3-flash-high": {},
-        "cchGemini/gemini-3-pro-low": {},
-        "cchGemini/gemini-3-pro-medium": {},
-        "cchGemini/gemini-3-pro-high": {}
-      }
     }
   },
   "roles": {
     "oracle": {
       "model": "codex/gpt-5.2@xhigh",
       "timeout_secs": 900,
-      "personas": {
-        "description": "Architecture decisions with long-term tradeoffs.",
-        "prompt": "You are Oracle, a senior architect. Focus on architecture, tradeoffs, and long-term risks. Avoid implementation details unless asked."
-      },
-      "capabilities": {
-        "filesystem": "read-only"
-      }
+      "fallback_models": [
+        "codex/gpt-5.2@high"
+      ]
     },
     "builder": {
-      "model": "codex/gpt-5.2-codex@high",
-      "timeout_secs": 600,
-      "capabilities": {
-        "filesystem": "read-write"
-      }
+      "model": "codex/gpt-5.3-codex@xhigh",
+      "timeout_secs": 600
     },
     "researcher": {
       "model": "gemini/gemini-3-pro-preview",
-      "timeout_secs": 600,
-      "capabilities": {
-        "filesystem": "read-only"
-      }
+      "timeout_secs": 600
     },
     "reviewer": {
       "model": "claude/claude-opus-4-5-20251101",
-      "timeout_secs": 300,
-      "capabilities": {
-        "filesystem": "read-only"
-      }
+      "timeout_secs": 300
     },
     "critic": {
       "model": "claude/claude-opus-4-5-20251101",
-      "timeout_secs": 300,
-      "capabilities": {
-        "filesystem": "read-only"
-      }
+      "timeout_secs": 300
     },
     "sprinter": {
       "model": "gemini/gemini-3-flash-preview",
-      "timeout_secs": 120,
-      "capabilities": {
-        "filesystem": "read-only"
-      }
-    },
-    "kimi_reader": {
-      "model": "kimi/default",
-      "timeout_secs": 300,
-      "capabilities": {
-        "filesystem": "read-only"
-      }
-    },
-    "opencode_reader": {
-      "model": "opencode/cchGemini/gemini-3-pro-high",
-      "timeout_secs": 300,
-      "capabilities": {
-        "filesystem": "read-only"
-      }
+      "timeout_secs": 120
     }
   }
 }

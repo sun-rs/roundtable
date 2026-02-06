@@ -15,6 +15,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 FilesystemCapability::ReadOnly,
                 FilesystemCapability::ReadWrite,
             ]),
+            prompt_transport: Some(crate::config::PromptTransport::Auto),
+            prompt_max_chars: Some(32768),
             args_template: v(&[
                 "exec",
                 "{% if capabilities.filesystem == 'read-only' %}--sandbox{% endif %}",
@@ -43,6 +45,7 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 session_id_path: "thread_id".to_string(),
                 message_path: "item.text".to_string(),
                 pick: Some(OutputPick::Last),
+                fallback: Some(crate::config::JsonStreamFallback::Codex),
             },
         },
     );
@@ -54,6 +57,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 FilesystemCapability::ReadOnly,
                 FilesystemCapability::ReadWrite,
             ]),
+            prompt_transport: None,
+            prompt_max_chars: None,
             args_template: v(&[
                 "--print",
                 "{{ prompt }}",
@@ -81,6 +86,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 FilesystemCapability::ReadOnly,
                 FilesystemCapability::ReadWrite,
             ]),
+            prompt_transport: None,
+            prompt_max_chars: None,
             args_template: v(&[
                 "--output-format",
                 "json",
@@ -108,6 +115,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
         "opencode".to_string(),
         AdapterConfig {
             filesystem_capabilities: Some(vec![FilesystemCapability::ReadWrite]),
+            prompt_transport: None,
+            prompt_max_chars: None,
             args_template: v(&[
                 "run",
                 "{% if model != 'default' %}-m{% endif %}",
@@ -122,6 +131,7 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 session_id_path: "part.sessionID".to_string(),
                 message_path: "part.text".to_string(),
                 pick: Some(OutputPick::Last),
+                fallback: None,
             },
         },
     );
@@ -130,6 +140,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
         "kimi".to_string(),
         AdapterConfig {
             filesystem_capabilities: Some(vec![FilesystemCapability::ReadWrite]),
+            prompt_transport: None,
+            prompt_max_chars: None,
             args_template: v(&[
                 "--print",
                 "--thinking",

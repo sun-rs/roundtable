@@ -39,6 +39,7 @@ returning partial messages.
 
 - `--json` emits JSONL events; the final answer is the last `item.text` from `agent_message` events.
 - Default text mode mixes reasoning with output and is hard to parse.
+- Optional JSONL fallback (`fallback=codex`) recovers output from `item.completed` when `message_path` is missing.
 
 ### Gemini
 

@@ -85,6 +85,12 @@ pub struct AdapterConfig {
     pub output_parser: OutputParserConfig,
     #[serde(default)]
     pub filesystem_capabilities: Option<Vec<FilesystemCapability>>,
+    /// How to pass prompt text to the backend (default: arg).
+    #[serde(default)]
+    pub prompt_transport: Option<PromptTransport>,
+    /// Maximum prompt length (chars) before auto switches to stdin (default: 32768).
+    #[serde(default)]
+    pub prompt_max_chars: Option<usize>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -95,6 +101,8 @@ pub enum OutputParserConfig {
         message_path: String,
         #[serde(default)]
         pick: Option<OutputPick>,
+        #[serde(default)]
+        fallback: Option<JsonStreamFallback>,
     },
     JsonObject {
         message_path: String,
@@ -119,6 +127,20 @@ impl Default for OutputPick {
     fn default() -> Self {
         Self::Last
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum JsonStreamFallback {
+    Codex,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PromptTransport {
+    Arg,
+    Stdin,
+    Auto,
 }
 
 impl OutputParserConfig {
@@ -155,7 +177,10 @@ pub enum OptionValue {
 pub struct RoleConfig {
     pub model: String,
     #[serde(default)]
+    pub fallback_models: Vec<String>,
+    #[serde(default)]
     pub personas: Option<PersonaConfig>,
+    #[serde(default)]
     pub capabilities: Capabilities,
     #[serde(default = "default_true")]
     pub enabled: bool,
@@ -179,6 +204,17 @@ pub struct Capabilities {
     pub network: NetworkCapability,
     #[serde(default = "default_tools")]
     pub tools: Vec<String>,
+}
+
+impl Default for Capabilities {
+    fn default() -> Self {
+        Self {
+            filesystem: default_filesystem_capability(),
+            shell: default_shell_capability(),
+            network: default_network_capability(),
+            tools: default_tools(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
@@ -270,6 +306,11 @@ impl VibeConfig {
     pub fn default_path() -> Option<PathBuf> {
         if let Some(base) = std::env::var_os("XDG_CONFIG_HOME") {
             return Some(PathBuf::from(base).join("three").join("config.json"));
+        }
+        if cfg!(windows) {
+            if let Some(dir) = dirs::config_dir() {
+                return Some(dir.join("three").join("config.json"));
+            }
         }
         let home = dirs::home_dir()?;
         Some(home.join(".config").join("three").join("config.json"))
@@ -423,7 +464,7 @@ pub(crate) fn parse_role_model_ref(s: &str) -> Result<(String, String, Option<St
     Ok((backend.to_string(), model.to_string(), variant))
 }
 
-fn resolve_model_options(
+pub(crate) fn resolve_model_options(
     model_cfg: &ModelConfig,
     variant: Option<&str>,
 ) -> Result<BTreeMap<String, OptionValue>> {
@@ -839,6 +880,7 @@ mod tests {
                 session_id_path,
                 message_path,
                 pick,
+                ..
             } => {
                 assert_eq!(session_id_path, "part.sessionID");
                 assert_eq!(message_path, "part.text");
@@ -879,6 +921,7 @@ mod tests {
                 session_id_path,
                 message_path,
                 pick,
+                ..
             } => {
                 assert_eq!(session_id_path, "thread_id");
                 assert_eq!(message_path, "item.text");
@@ -902,20 +945,25 @@ mod tests {
     }
 
     #[test]
-    fn example_config_rejects_opencode_reader() {
+    fn example_config_loads_with_defaults() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
         std::fs::create_dir_all(&repo).unwrap();
 
         let cfg_path = crate::test_utils::example_config_path();
-        let loader =
-            ConfigLoader::new(Some(cfg_path));
+        let loader = ConfigLoader::new(Some(cfg_path));
         let cfg = loader.load_for_repo(&repo).unwrap().unwrap();
 
-        let err = cfg.resolve_profile(Some("opencode_reader")).unwrap_err();
-        assert!(err
-            .to_string()
-            .contains("unsupported filesystem capability ReadOnly for backend 'opencode'"));
+        let oracle = cfg.resolve_profile(Some("oracle")).unwrap();
+        assert_eq!(oracle.role_id, "oracle");
+        assert_eq!(oracle.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
+        assert_eq!(oracle.profile.capabilities.shell, ShellCapability::Allow);
+        assert_eq!(oracle.profile.capabilities.network, NetworkCapability::Allow);
+        let role_cfg = cfg.roles.get("oracle").unwrap();
+        assert_eq!(
+            role_cfg.fallback_models,
+            vec!["codex/gpt-5.2@high".to_string()]
+        );
     }
 
     #[test]

@@ -16,8 +16,9 @@ Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, 
 - `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
 - `docs/config-schema.md` — config fields, defaults, and role resolution rules
 
-Note: `examples/config.json` includes `kimi_reader` / `opencode_reader` counterexamples used to test capability validation.
-Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona for that role.
+Note: `examples/config.json` is a technical-only template (no persona overrides).
+Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona for that role
+(see `docs/config-schema.md` for a minimal override example).
 
 ## CLI adapter matrix
 
@@ -38,6 +39,9 @@ Adapter notes:
 - The adapter catalog is embedded in the server (no `adapter.json` config file).
 - `args_template` is a list of tokens; empty tokens are dropped.
 - `include_directories` is auto-derived from absolute paths in the prompt (Gemini).
+- Codex uses `prompt_transport=auto` by default: long prompts are sent via `stdin` instead of argv.
+- `json_stream` supports optional fallback parsing (`fallback=codex`) when `message_path` is missing.
+- Roles may define `fallback_models` to retry on model-not-found errors (same backend only).
 
 ## Quick start
 

@@ -56,6 +56,8 @@ graph TD
 - **Built-in Personas**: The server injects persona prompts only when a new session is created.
 - **Roundtable**: Plugin workflow that runs multi-role discussions and converges on a result.
 - **Configurable**: A single JSON file defines models, roles, and overrides.
+- **Prompt Transport Auto**: Codex switches to stdin for long prompts to avoid argv limits.
+- **Model Fallback**: Roles can declare fallback models to retry on model-not-found errors.
 
 ---
 
@@ -115,6 +117,7 @@ cp examples/config.json ~/.config/three/config.json
 Notes:
 - Personas are built into the MCP server. `roles.<id>.personas` is optional and overrides the built-in persona for that role.
 - `roles.<id>.enabled` defaults to `true` and disables a role when set to `false`.
+- `roles.<id>.fallback_models` retries on model-not-found errors (same backend only).
 - See `docs/config-schema.md` for full details.
 
 ### 4. Install Claude Code Plugin
@@ -174,6 +177,7 @@ Define agents under `roles.<name>`.
 -   `timeout_secs`: Execution timeout (default 600s).
 -   `personas` (optional): override the built-in persona.
 -   `enabled` (optional): disable a role without deleting it.
+-   `fallback_models` (optional): ordered list of fallback models for model-not-found errors.
 
 See `docs/config-schema.md` for the full schema and behavior.
 
