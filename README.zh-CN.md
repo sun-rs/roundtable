@@ -39,7 +39,7 @@ Adapter 说明：
 - adapter catalog 内置于服务器（不再使用 `adapter.json` 配置文件）。
 - `args_template` 是 token 列表，空 token 会被丢弃。
 - `include_directories` 会从 prompt 中的绝对路径自动推导（Gemini）。
-- Codex 默认启用 `prompt_transport=auto`：长 prompt 会改用 `stdin` 传递。
+- 所有内置适配器默认启用 `prompt_transport=auto`：长 prompt 会改用 `stdin` 传递（不混用 argv+stdin）。
 - `json_stream` 可选启用 `fallback=codex`，用于在缺失 `message_path` 时回退解析。
 - `roles.<id>.fallback_models` 可在模型不存在时自动回退（同一 backend 内）。
 

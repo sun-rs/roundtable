@@ -850,6 +850,116 @@ mod tests {
         assert!(!args.iter().any(|t| t == "/THREE_PERSONA"));
     }
 
+    fn long_prompt() -> String {
+        "x".repeat(40_000)
+    }
+
+    #[test]
+    fn cfgtest_prompt_transport_auto_omits_prompt_for_claude() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog.adapters.get("claude").expect("claude adapter").clone();
+        let prompt = long_prompt();
+
+        let args = render_args(&GenericOptions {
+            backend_id: "claude".to_string(),
+            adapter,
+            prompt: prompt.clone(),
+            workdir: repo.to_path_buf(),
+            session_id: None,
+            resume: false,
+            model: "claude-sonnet-4-5-20250929".to_string(),
+            options: BTreeMap::new(),
+            capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            timeout_secs: 5,
+        })
+        .unwrap();
+
+        assert!(!args.contains(&prompt));
+    }
+
+    #[test]
+    fn cfgtest_prompt_transport_auto_omits_prompt_for_gemini() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog.adapters.get("gemini").expect("gemini adapter").clone();
+        let prompt = long_prompt();
+
+        let args = render_args(&GenericOptions {
+            backend_id: "gemini".to_string(),
+            adapter,
+            prompt: prompt.clone(),
+            workdir: repo.to_path_buf(),
+            session_id: None,
+            resume: false,
+            model: "gemini-3-pro-preview".to_string(),
+            options: BTreeMap::new(),
+            capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            timeout_secs: 5,
+        })
+        .unwrap();
+
+        assert!(!args.contains(&"--prompt".to_string()));
+        assert!(!args.contains(&prompt));
+    }
+
+    #[test]
+    fn cfgtest_prompt_transport_auto_omits_prompt_for_kimi() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog.adapters.get("kimi").expect("kimi adapter").clone();
+        let prompt = long_prompt();
+
+        let args = render_args(&GenericOptions {
+            backend_id: "kimi".to_string(),
+            adapter,
+            prompt: prompt.clone(),
+            workdir: repo.to_path_buf(),
+            session_id: None,
+            resume: false,
+            model: "kimi-for-coding".to_string(),
+            options: BTreeMap::new(),
+            capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            timeout_secs: 5,
+        })
+        .unwrap();
+
+        assert!(!args.contains(&"--prompt".to_string()));
+        assert!(!args.contains(&prompt));
+    }
+
+    #[test]
+    fn cfgtest_prompt_transport_auto_omits_prompt_for_opencode() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+        let catalog = embedded_adapter_catalog();
+        let adapter = catalog.adapters.get("opencode").expect("opencode adapter").clone();
+        let prompt = long_prompt();
+
+        let args = render_args(&GenericOptions {
+            backend_id: "opencode".to_string(),
+            adapter,
+            prompt: prompt.clone(),
+            workdir: repo.to_path_buf(),
+            session_id: None,
+            resume: false,
+            model: "opencode-gpt-5".to_string(),
+            options: BTreeMap::new(),
+            capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            timeout_secs: 5,
+        })
+        .unwrap();
+
+        assert!(!args.contains(&prompt));
+    }
+
     #[test]
     fn cfgtest_render_codex_readonly_no_session_uses_model_and_sandbox() {
         let td = tempfile::tempdir().unwrap();

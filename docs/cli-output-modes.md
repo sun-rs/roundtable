@@ -19,6 +19,33 @@ All `docs/cli-*.md` files must link here and should not duplicate output details
 
 ---
 
+## Prompt transport (argv vs stdin)
+
+These findings are from local CLI probes (2026-02-06) using explicit A/B markers.
+We avoid mixed transport in three and send prompts via **one** channel only.
+
+### When argv + stdin are both provided
+
+| CLI | Observed behavior |
+| --- | --- |
+| **codex** | argv wins; stdin ignored (`ARG_ONLY`) |
+| **gemini** | argv wins; stdin ignored (`ARG_ONLY`) |
+| **claude** | argv wins; stdin ignored (`ARG_ONLY`) |
+| **kimi** | argv wins; stdin ignored (`ARG_ONLY`) |
+| **opencode** | merges argv + stdin (`BOTH`) |
+
+### Stdin-only viability (no argv prompt)
+
+- **codex**: reads stdin (logs "Reading prompt from stdin...") and responds.
+- **gemini**: reads stdin; `-p/--prompt` appends stdin to argv prompt (per CLI help).
+- **claude**: reads stdin with `--print --input-format text` (stream-json input requires `--output-format stream-json --verbose`).
+- **kimi**: reads stdin with `--print --input-format text`.
+- **opencode**: accepts stdin-only and responds.
+
+**Policy**: Do not pass prompt text in both argv and stdin. Use one transport only.
+
+---
+
 ## Stream completion rule
 
 For streaming outputs (Codex/OpenCode, or any CLI in stream mode), three waits for the CLI process to exit,

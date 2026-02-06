@@ -60,6 +60,8 @@ Each adapter entry contains:
   - `auto`: use `stdin` when prompt length exceeds `prompt_max_chars`
 - `prompt_max_chars` (optional): Max prompt length before `auto` switches to `stdin`
   (default: `32768`).
+  - Embedded adapters default to `auto`. When stdin is selected, prompt arguments are omitted
+    (no mixed argv+stdin).
 
 Template context variables (stable names):
 

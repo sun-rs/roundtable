@@ -858,7 +858,7 @@ mod tests {
             "expected --sandbox in gemini adapter args"
         );
         assert!(
-            args.contains(&"--prompt".to_string()),
+            args.iter().any(|token| token.contains("--prompt")),
             "expected --prompt in gemini adapter args"
         );
         assert!(

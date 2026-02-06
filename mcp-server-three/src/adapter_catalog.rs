@@ -57,11 +57,11 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 FilesystemCapability::ReadOnly,
                 FilesystemCapability::ReadWrite,
             ]),
-            prompt_transport: None,
-            prompt_max_chars: None,
+            prompt_transport: Some(crate::config::PromptTransport::Auto),
+            prompt_max_chars: Some(32768),
             args_template: v(&[
                 "--print",
-                "{{ prompt }}",
+                "{% if prompt_transport != 'stdin' %}{{ prompt }}{% endif %}",
                 "--output-format",
                 "json",
                 "{% if model != 'default' %}--model{% endif %}",
@@ -86,8 +86,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 FilesystemCapability::ReadOnly,
                 FilesystemCapability::ReadWrite,
             ]),
-            prompt_transport: None,
-            prompt_max_chars: None,
+            prompt_transport: Some(crate::config::PromptTransport::Auto),
+            prompt_max_chars: Some(32768),
             args_template: v(&[
                 "--output-format",
                 "json",
@@ -101,8 +101,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 "{{ include_directories }}",
                 "{% if session_id %}--resume{% endif %}",
                 "{% if session_id %}{{ session_id }}{% endif %}",
-                "--prompt",
-                "{{ prompt }}",
+                "{% if prompt_transport != 'stdin' %}--prompt{% endif %}",
+                "{% if prompt_transport != 'stdin' %}{{ prompt }}{% endif %}",
             ]),
             output_parser: OutputParserConfig::JsonObject {
                 session_id_path: Some("session_id".to_string()),
@@ -115,8 +115,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
         "opencode".to_string(),
         AdapterConfig {
             filesystem_capabilities: Some(vec![FilesystemCapability::ReadWrite]),
-            prompt_transport: None,
-            prompt_max_chars: None,
+            prompt_transport: Some(crate::config::PromptTransport::Auto),
+            prompt_max_chars: Some(32768),
             args_template: v(&[
                 "run",
                 "{% if model != 'default' %}-m{% endif %}",
@@ -125,7 +125,7 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 "{% if session_id %}{{ session_id }}{% endif %}",
                 "--format",
                 "json",
-                "{{ prompt }}",
+                "{% if prompt_transport != 'stdin' %}{{ prompt }}{% endif %}",
             ]),
             output_parser: OutputParserConfig::JsonStream {
                 session_id_path: "part.sessionID".to_string(),
@@ -140,8 +140,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
         "kimi".to_string(),
         AdapterConfig {
             filesystem_capabilities: Some(vec![FilesystemCapability::ReadWrite]),
-            prompt_transport: None,
-            prompt_max_chars: None,
+            prompt_transport: Some(crate::config::PromptTransport::Auto),
+            prompt_max_chars: Some(32768),
             args_template: v(&[
                 "--print",
                 "--thinking",
@@ -155,8 +155,8 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 "{% if resume and not session_id %}--continue{% endif %}",
                 "{% if session_id %}--session{% endif %}",
                 "{% if session_id %}{{ session_id }}{% endif %}",
-                "--prompt",
-                "{% if capabilities.filesystem == 'read-only' %}{{ prompt }}\n\u{4e0d}\u{5141}\u{8bb8}\u{5199}\u{6587}\u{4ef6}{% else %}{{ prompt }}{% endif %}",
+                "{% if prompt_transport != 'stdin' %}--prompt{% endif %}",
+                "{% if prompt_transport != 'stdin' %}{% if capabilities.filesystem == 'read-only' %}{{ prompt }}\n\u{4e0d}\u{5141}\u{8bb8}\u{5199}\u{6587}\u{4ef6}{% else %}{{ prompt }}{% endif %}{% endif %}",
             ]),
             output_parser: OutputParserConfig::Text,
         },

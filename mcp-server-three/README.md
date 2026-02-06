@@ -56,7 +56,7 @@ graph TD
 - **Built-in Personas**: The server injects persona prompts only when a new session is created.
 - **Roundtable**: Plugin workflow that runs multi-role discussions and converges on a result.
 - **Configurable**: A single JSON file defines models, roles, and overrides.
-- **Prompt Transport Auto**: Codex switches to stdin for long prompts to avoid argv limits.
+- **Prompt Transport Auto**: All adapters switch to stdin for long prompts to avoid argv limits (no mixed transport).
 - **Model Fallback**: Roles can declare fallback models to retry on model-not-found errors.
 
 ---

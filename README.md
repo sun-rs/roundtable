@@ -39,7 +39,7 @@ Adapter notes:
 - The adapter catalog is embedded in the server (no `adapter.json` config file).
 - `args_template` is a list of tokens; empty tokens are dropped.
 - `include_directories` is auto-derived from absolute paths in the prompt (Gemini).
-- Codex uses `prompt_transport=auto` by default: long prompts are sent via `stdin` instead of argv.
+- All embedded adapters default to `prompt_transport=auto`: long prompts are sent via `stdin` instead of argv (no mixed transport).
 - `json_stream` supports optional fallback parsing (`fallback=codex`) when `message_path` is missing.
 - Roles may define `fallback_models` to retry on model-not-found errors (same backend only).
 
