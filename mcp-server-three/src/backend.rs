@@ -1,6 +1,6 @@
 use crate::config::{
-    AdapterConfig, Capabilities, JsonStreamFallback, OptionValue, OutputParserConfig, OutputPick,
-    PromptTransport,
+    AdapterConfig, Capabilities, FilesystemCapability, JsonStreamFallback, OptionValue,
+    OutputParserConfig, OutputPick, PromptTransport,
 };
 use anyhow::{anyhow, Context, Result};
 use minijinja::{context, Environment};
@@ -24,6 +24,7 @@ pub struct GenericOptions {
     pub model: String,
     pub options: BTreeMap<String, OptionValue>,
     pub capabilities: Capabilities,
+    pub fallback_error_patterns: Vec<String>,
     pub timeout_secs: u64,
 }
 
@@ -35,6 +36,7 @@ pub struct GenericResult {
 }
 
 const DEFAULT_PROMPT_MAX_CHARS: usize = 32 * 1024;
+const KIMI_READONLY_GUARDRAIL: &str = "不允许写文件";
 
 pub async fn run(opts: GenericOptions) -> Result<GenericResult> {
     let timeout_duration = Duration::from_secs(opts.timeout_secs);
@@ -44,13 +46,14 @@ pub async fn run(opts: GenericOptions) -> Result<GenericResult> {
 }
 
 pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
-    let transport = resolve_prompt_transport(&opts.adapter, &opts.prompt);
+    let prompt = apply_prompt_guardrails(&opts.backend_id, &opts.capabilities, &opts.prompt);
+    let transport = resolve_prompt_transport(&opts.adapter, &prompt);
     let env = Environment::new();
     let options_val = serde_json::to_value(&opts.options).context("serialize options")?;
     let capabilities_val = serde_json::to_value(&opts.capabilities).context("serialize capabilities")?;
     let include_directories = detect_include_directories(&opts.prompt, &opts.workdir);
     let prompt_for_args = match transport {
-        ResolvedPromptTransport::Arg => opts.prompt.as_str(),
+        ResolvedPromptTransport::Arg => prompt.as_str(),
         ResolvedPromptTransport::Stdin => "",
     };
     let ctx = context! {
@@ -81,8 +84,9 @@ pub fn render_args(opts: &GenericOptions) -> Result<Vec<String>> {
 
 async fn run_internal(opts: GenericOptions) -> Result<GenericResult> {
     let command = resolve_command(&opts.backend_id);
+    let prompt = apply_prompt_guardrails(&opts.backend_id, &opts.capabilities, &opts.prompt);
+    let transport = resolve_prompt_transport(&opts.adapter, &prompt);
     let args = render_args(&opts)?;
-    let transport = resolve_prompt_transport(&opts.adapter, &opts.prompt);
 
     let mut cmd = Command::new(command);
     cmd.args(&args)
@@ -99,7 +103,7 @@ async fn run_internal(opts: GenericOptions) -> Result<GenericResult> {
     if let ResolvedPromptTransport::Stdin = transport {
         if let Some(mut stdin) = child.stdin.take() {
             stdin
-                .write_all(opts.prompt.as_bytes())
+                .write_all(prompt.as_bytes())
                 .await
                 .context("failed to write prompt to stdin")?;
         }
@@ -109,7 +113,7 @@ async fn run_internal(opts: GenericOptions) -> Result<GenericResult> {
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
-    if let Some(model_err) = detect_model_error(&stdout, &stderr) {
+    if let Some(model_err) = detect_model_error(&stdout, &stderr, &opts.fallback_error_patterns, output.status.success()) {
         return Err(anyhow!("model_not_found: {model_err}"));
     }
 
@@ -217,6 +221,25 @@ fn resolve_prompt_transport(adapter: &AdapterConfig, prompt: &str) -> ResolvedPr
     }
 }
 
+fn apply_prompt_guardrails(
+    backend_id: &str,
+    capabilities: &Capabilities,
+    prompt: &str,
+) -> String {
+    if backend_id == "kimi" && capabilities.filesystem == FilesystemCapability::ReadOnly {
+        if prompt.contains(KIMI_READONLY_GUARDRAIL) {
+            return prompt.to_string();
+        }
+        if prompt.ends_with('\n') {
+            format!("{prompt}{KIMI_READONLY_GUARDRAIL}")
+        } else {
+            format!("{prompt}\n{KIMI_READONLY_GUARDRAIL}")
+        }
+    } else {
+        prompt.to_string()
+    }
+}
+
 fn parse_output(parser: &OutputParserConfig, stdout: &str) -> Result<(String, String)> {
     match parser {
         OutputParserConfig::JsonStream {
@@ -243,42 +266,66 @@ fn parse_output(parser: &OutputParserConfig, stdout: &str) -> Result<(String, St
     }
 }
 
-fn detect_model_error(stdout: &str, stderr: &str) -> Option<String> {
-    let pattern = Regex::new(r"(?i)model[_\\s-]?not[_\\s-]?found|model\\s+is\\s+not\\s+supported|unknown\\s+model")
-        .ok()?;
+fn detect_model_error(
+    stdout: &str,
+    stderr: &str,
+    patterns: &[String],
+    status_success: bool,
+) -> Option<String> {
+    let patterns: Vec<String> = patterns
+        .iter()
+        .map(|p| p.trim().to_ascii_lowercase())
+        .filter(|p| !p.is_empty())
+        .collect();
+    if patterns.is_empty() {
+        return None;
+    }
+
+    let matches = |text: &str| {
+        let lower = text.to_ascii_lowercase();
+        patterns.iter().any(|p| lower.contains(p))
+    };
 
     for line in stdout.lines() {
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;
         }
-        let v: Value = match serde_json::from_str(trimmed) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
-        let ty = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
-        if ty == "error" || ty == "turn.failed" {
-            let msg = v
-                .get("message")
-                .and_then(|m| m.as_str())
-                .or_else(|| {
-                    v.get("error")
-                        .and_then(|e| e.get("message"))
-                        .and_then(|m| m.as_str())
-                })
-                .unwrap_or("");
-            if pattern.is_match(msg) {
-                return Some(msg.to_string());
+        if let Ok(v) = serde_json::from_str::<Value>(trimmed) {
+            let ty = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
+            if ty == "error" || ty == "turn.failed" {
+                let msg = v
+                    .get("message")
+                    .and_then(|m| m.as_str())
+                    .or_else(|| {
+                        v.get("error")
+                            .and_then(|e| e.get("message"))
+                            .and_then(|m| m.as_str())
+                    })
+                    .unwrap_or("");
+                if matches(msg) {
+                    return Some(msg.to_string());
+                }
+                if matches(trimmed) {
+                    return Some(trimmed.to_string());
+                }
             }
         }
     }
 
-    if pattern.is_match(stderr) {
-        return Some(stderr.trim().to_string());
+    if !status_success {
+        for line in stderr.lines() {
+            if matches(line) {
+                return Some(line.to_string());
+            }
+        }
+        for line in stdout.lines() {
+            if matches(line) {
+                return Some(line.to_string());
+            }
+        }
     }
-    if pattern.is_match(stdout) {
-        return Some("model_not_found".to_string());
-    }
+
     None
 }
 
@@ -478,6 +525,7 @@ mod tests {
             model: rp.profile.model.clone(),
             options: rp.profile.options.clone(),
             capabilities: rp.profile.capabilities.clone(),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap()
@@ -544,6 +592,7 @@ mod tests {
             model: model.to_string(),
             options,
             capabilities: base_capabilities(filesystem),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap()
@@ -560,6 +609,7 @@ mod tests {
             model: model.to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap()
@@ -609,6 +659,7 @@ mod tests {
             model: "kimi-for-coding".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -630,6 +681,18 @@ mod tests {
     }
 
     #[test]
+    fn cfgtest_kimi_readonly_guardrail_applies_to_prompt() {
+        let prompt = "ping";
+        let guarded = apply_prompt_guardrails(
+            "kimi",
+            &base_capabilities(FilesystemCapability::ReadOnly),
+            prompt,
+        );
+        assert!(guarded.contains("ping"));
+        assert!(guarded.contains("不允许写文件"));
+    }
+
+    #[test]
     fn cfgtest_render_kimi_readwrite_no_guardrail_and_session() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
@@ -646,6 +709,7 @@ mod tests {
             model: "kimi-for-coding".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -675,6 +739,7 @@ mod tests {
             model: "kimi-for-coding".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -700,6 +765,7 @@ mod tests {
             model: "default".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -725,6 +791,7 @@ mod tests {
             model: "default".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -769,6 +836,7 @@ mod tests {
             model: "default".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadOnly),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -873,6 +941,7 @@ mod tests {
             model: "claude-sonnet-4-5-20250929".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -899,6 +968,7 @@ mod tests {
             model: "gemini-3-pro-preview".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -926,6 +996,7 @@ mod tests {
             model: "kimi-for-coding".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();
@@ -953,6 +1024,7 @@ mod tests {
             model: "opencode-gpt-5".to_string(),
             options: BTreeMap::new(),
             capabilities: base_capabilities(FilesystemCapability::ReadWrite),
+            fallback_error_patterns: Vec::new(),
             timeout_secs: 5,
         })
         .unwrap();

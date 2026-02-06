@@ -2,6 +2,13 @@
   "backend": {
     "codex": {
       "timeout_secs": 600,
+      "fallback": {
+        "model": "codex/gpt-5.2@high",
+        "patterns": [
+          "model_not_found",
+          "unknown model"
+        ]
+      },
       "models": {
         "gpt-5.2": {
           "options": {},
@@ -58,10 +65,7 @@
   "roles": {
     "oracle": {
       "model": "codex/gpt-5.2@xhigh",
-      "timeout_secs": 900,
-      "fallback_models": [
-        "codex/gpt-5.2@high"
-      ]
+      "timeout_secs": 900
     },
     "builder": {
       "model": "codex/gpt-5.3-codex@xhigh",
@@ -69,14 +73,20 @@
     },
     "researcher": {
       "model": "gemini/gemini-3-pro-preview",
-      "timeout_secs": 600
+      "timeout_secs": 600,
+      "capabilities": {
+        "filesystem": "read-only"
+      }
     },
     "reviewer": {
       "model": "claude/claude-opus-4-5-20251101",
-      "timeout_secs": 300
+      "timeout_secs": 300,
+      "capabilities": {
+        "filesystem": "read-only"
+      }
     },
     "critic": {
-      "model": "claude/claude-opus-4-5-20251101",
+      "model": "opencode/kimi-for-coding/k2p5",
       "timeout_secs": 300
     },
     "sprinter": {

@@ -77,6 +77,15 @@ pub struct BackendConfig {
     pub timeout_secs: Option<u64>,
     #[serde(default)]
     pub models: BTreeMap<String, ModelConfig>,
+    #[serde(default)]
+    pub fallback: Option<BackendFallback>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct BackendFallback {
+    pub model: String,
+    #[serde(default)]
+    pub patterns: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -177,8 +186,6 @@ pub enum OptionValue {
 pub struct RoleConfig {
     pub model: String,
     #[serde(default)]
-    pub fallback_models: Vec<String>,
-    #[serde(default)]
     pub personas: Option<PersonaConfig>,
     #[serde(default)]
     pub capabilities: Capabilities,
@@ -269,7 +276,7 @@ pub enum Backend {
 }
 
 impl Backend {
-    fn parse(s: &str) -> Option<Self> {
+    pub(crate) fn parse(s: &str) -> Option<Self> {
         match s.to_ascii_lowercase().as_str() {
             "claude" => Some(Self::Claude),
             "codex" => Some(Self::Codex),
@@ -336,6 +343,17 @@ impl VibeConfig {
         }
         if !obj.contains_key("roles") {
             return Err(anyhow!("invalid config: missing 'roles' object"));
+        }
+        if let Some(roles) = obj.get("roles").and_then(|v| v.as_object()) {
+            for (role_id, role_val) in roles {
+                if let Some(role_obj) = role_val.as_object() {
+                    if role_obj.contains_key("fallback_models") {
+                        return Err(anyhow!(
+                            "invalid config: roles.{role_id}.fallback_models is not supported; use backend.<id>.fallback instead"
+                        ));
+                    }
+                }
+            }
         }
 
         let mut cfg: VibeConfig = serde_json::from_value(v)
@@ -413,6 +431,42 @@ impl VibeConfig {
     fn validate(&self) -> Result<()> {
         for backend_id in self.backend.keys() {
             parse_backend_key(backend_id)?;
+        }
+        for (backend_id, backend_cfg) in &self.backend {
+            if let Some(fallback) = backend_cfg.fallback.as_ref() {
+                let has_patterns = fallback.patterns.iter().any(|p| !p.trim().is_empty());
+                if !has_patterns {
+                    return Err(anyhow!(
+                        "backend {backend_id} defines fallback but no fallback.patterns"
+                    ));
+                }
+                let (fallback_backend_id, model_id, variant) = parse_role_model_ref(&fallback.model)
+                    .with_context(|| {
+                        format!(
+                            "invalid backend fallback model reference: {backend_id}"
+                        )
+                    })?;
+                if !self.backend.contains_key(&fallback_backend_id) {
+                    return Err(anyhow!(
+                        "backend {backend_id} fallback model references missing backend: {fallback_backend_id}"
+                    ));
+                }
+                let target_backend = self
+                    .backend
+                    .get(&fallback_backend_id)
+                    .ok_or_else(|| anyhow!("missing backend config: {fallback_backend_id}"))?;
+                if model_id == "default" {
+                    if variant.is_some() {
+                        return Err(anyhow!(
+                            "fallback model 'default' does not support variants"
+                        ));
+                    }
+                } else if !target_backend.models.contains_key(&model_id) {
+                    return Err(anyhow!(
+                        "backend {backend_id} fallback model references unknown model '{model_id}' for backend '{fallback_backend_id}'"
+                    ));
+                }
+            }
         }
         for (role_id, role) in &self.roles {
             let (backend_id, _model_id, variant) = parse_role_model_ref(&role.model)
@@ -508,6 +562,9 @@ fn merge_config(mut base: VibeConfig, overlay: VibeConfig) -> VibeConfig {
                 if overlay_backend.timeout_secs.is_some() {
                     base_backend.timeout_secs = overlay_backend.timeout_secs;
                 }
+                if overlay_backend.fallback.is_some() {
+                    base_backend.fallback = overlay_backend.fallback;
+                }
             }
             None => {
                 base.backend.insert(backend_id, overlay_backend);
@@ -584,6 +641,65 @@ mod tests {
 
         let err = VibeConfig::load(&path).unwrap_err();
         assert!(err.to_string().contains("missing 'roles'"));
+    }
+
+    #[test]
+    fn rejects_backend_fallback_without_patterns() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": {
+      "fallback": {
+        "model": "codex/gpt-5.2",
+        "patterns": []
+      },
+      "models": { "gpt-5.2": {} }
+    }
+  },
+  "roles": {
+    "oracle": {
+      "model": "codex/gpt-5.2",
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only","shell":"deny","network":"deny","tools":["read"]}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = VibeConfig::load(&path).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("fallback") && msg.contains("patterns"), "unexpected error: {msg}");
+    }
+
+    #[test]
+    fn rejects_role_fallback_models_key() {
+        let td = tempfile::tempdir().unwrap();
+        let path = td.path().join("cfg.json");
+        std::fs::write(
+            &path,
+            r#"{
+  "backend": {
+    "codex": { "models": { "gpt-5.2": {} } }
+  },
+  "roles": {
+    "oracle": {
+      "model": "codex/gpt-5.2",
+      "fallback_models": ["codex/gpt-5.2"],
+      "personas": {"description":"d","prompt":"p"},
+      "capabilities": {"filesystem":"read-only","shell":"deny","network":"deny","tools":["read"]}
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let err = VibeConfig::load(&path).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("fallback_models") && msg.contains("roles"), "unexpected error: {msg}");
     }
 
     #[test]
@@ -959,11 +1075,9 @@ mod tests {
         assert_eq!(oracle.profile.capabilities.filesystem, FilesystemCapability::ReadWrite);
         assert_eq!(oracle.profile.capabilities.shell, ShellCapability::Allow);
         assert_eq!(oracle.profile.capabilities.network, NetworkCapability::Allow);
-        let role_cfg = cfg.roles.get("oracle").unwrap();
-        assert_eq!(
-            role_cfg.fallback_models,
-            vec!["codex/gpt-5.2@high".to_string()]
-        );
+        let backend_cfg = cfg.backend.get("codex").unwrap();
+        let fallback = backend_cfg.fallback.as_ref().expect("fallback");
+        assert_eq!(fallback.model, "codex/gpt-5.2@high");
     }
 
     #[test]

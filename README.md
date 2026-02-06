@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude. It orchestrates role-based agents with session-aware reuse, safe capabilities, parallel fan-out, and roundtable consensus, so you can split complex tasks, cross-check results, and converge faster with less prompt overhead and clearer, auditable outputs. Use `/three:conductor` to dispatch complex work across multiple LLMs, or `/three:roundtable` to run multi-round discussions for tough decisions and designs.
 
 ## Repo layout
 
@@ -41,7 +41,7 @@ Adapter notes:
 - `include_directories` is auto-derived from absolute paths in the prompt (Gemini).
 - All embedded adapters default to `prompt_transport=auto`: long prompts are sent via `stdin` instead of argv (no mixed transport).
 - `json_stream` supports optional fallback parsing (`fallback=codex`) when `message_path` is missing.
-- Roles may define `fallback_models` to retry on model-not-found errors (same backend only).
+- Backends may define `fallback` to retry on model-not-found errors (can span backends).
 
 ## Quick start
 

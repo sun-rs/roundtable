@@ -156,7 +156,7 @@ pub fn embedded_adapter_catalog() -> AdapterCatalog {
                 "{% if session_id %}--session{% endif %}",
                 "{% if session_id %}{{ session_id }}{% endif %}",
                 "{% if prompt_transport != 'stdin' %}--prompt{% endif %}",
-                "{% if prompt_transport != 'stdin' %}{% if capabilities.filesystem == 'read-only' %}{{ prompt }}\n\u{4e0d}\u{5141}\u{8bb8}\u{5199}\u{6587}\u{4ef6}{% else %}{{ prompt }}{% endif %}{% endif %}",
+                "{% if prompt_transport != 'stdin' %}{{ prompt }}{% endif %}",
             ]),
             output_parser: OutputParserConfig::Text,
         },

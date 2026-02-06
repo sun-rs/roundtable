@@ -23,6 +23,7 @@ Each backend entry contains:
 
 - `models`: Model definitions for that backend.
 - `timeout_secs` (optional): Default timeout in seconds for this backend.
+- `fallback` (optional): Fallback model + patterns for model-not-found errors.
 
 Adapter definitions are embedded in the server (no `adapter.json` config file).
 User `config.json` should not include `adapter` fields unless you need to override
@@ -106,6 +107,27 @@ Rules:
 - `variants` is an object map. Each variant overrides/extends `options` by upsert.
 - Final options are resolved as: base `options` + variant overrides.
 
+## backend.<name>.fallback
+
+Fallback definition for model-not-found errors. Structure:
+
+```json
+{
+  "model": "backend/model@variant",
+  "patterns": ["model_not_found", "unknown model"]
+}
+```
+
+- `model` uses the same reference rules as `roles.<id>.model`.
+- `patterns` is a list of **case-insensitive substrings** used to detect
+  model-not-found errors for that backend. There is **no default**.
+- If `fallback` is set, `patterns` must include at least one non-empty string.
+
+When the primary model fails with a matching error, the server attempts the fallback
+model (can span backends). Fallbacks run with the same role capabilities; if the target
+backend does not support the requested filesystem capability, the fallback is skipped.
+When a fallback is used, the response `warnings` includes `model fallback used: ...`.
+
 ## roles
 
 `roles` configures technical settings for each role. Personas are built into the MCP server and can be overridden per role if needed. Each role entry contains:
@@ -129,8 +151,8 @@ Rules:
   - `tools` (optional, default `["*"]`): list of tool names or `*`
 - `enabled` (optional, default `true`): disable a role without deleting it.
 - `timeout_secs` (optional): Override timeout in seconds for this role.
-- `fallback_models` (optional): List of fallback model references
-  (`backend/model@variant`). Fallbacks must use the same backend as `model`.
+
+Note: `roles.<id>.fallback_models` is **not supported** and will error on load.
 
 Example persona override:
 
@@ -222,7 +244,7 @@ The only per-role inputs that can reach a CLI are:
 - `capabilities` → passed to adapter as `capabilities.*` for flag mapping.
 - `options` / `variants` → merged into `options` and exposed to adapter.
 - `timeout_secs` → used by the server to enforce backend timeout.
-- `fallback_models` → used by the server for model fallback on model-not-found errors.
+- `backend.<id>.fallback` → used by the server for model fallback on model-not-found errors.
 
 Anything else must be added explicitly in the adapter template; there is no
 implicit per-role flag injection.

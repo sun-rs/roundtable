@@ -3,7 +3,7 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。
+面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。可通过 `/three:conductor` 将复杂指令拆分并分派给多个 LLM，通过 `/three:roundtable` 发起多轮讨论以汇聚复杂方案与决策。
 
 ## 目录结构
 
@@ -41,7 +41,7 @@ Adapter 说明：
 - `include_directories` 会从 prompt 中的绝对路径自动推导（Gemini）。
 - 所有内置适配器默认启用 `prompt_transport=auto`：长 prompt 会改用 `stdin` 传递（不混用 argv+stdin）。
 - `json_stream` 可选启用 `fallback=codex`，用于在缺失 `message_path` 时回退解析。
-- `roles.<id>.fallback_models` 可在模型不存在时自动回退（同一 backend 内）。
+- `backend.<id>.fallback` 可在模型不存在时自动回退（可跨 backend）。
 
 ## 快速开始
 

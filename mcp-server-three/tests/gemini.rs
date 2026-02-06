@@ -43,6 +43,7 @@ fn render_args_for_role(
         model: rp.profile.model.clone(),
         options: rp.profile.options.clone(),
         capabilities: rp.profile.capabilities.clone(),
+        fallback_error_patterns: Vec::new(),
         timeout_secs: 5,
     })
     .unwrap()

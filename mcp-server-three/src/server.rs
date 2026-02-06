@@ -1,6 +1,9 @@
 use crate::{
     backend,
-    config::{parse_role_model_ref, resolve_model_options, ConfigLoader, OptionValue},
+    config::{
+        parse_role_model_ref, resolve_model_options, AdapterConfig, Backend, ConfigLoader,
+        OptionValue,
+    },
     contract,
     personas::resolve_persona,
     session_store::{now_unix_secs, SessionRecord, SessionStore},
@@ -248,6 +251,24 @@ struct FanoutResult {
     name: Option<String>,
     role: String,
     result: std::result::Result<VibeOutput, McpError>,
+}
+
+#[derive(Debug, Clone)]
+struct ModelCandidate {
+    backend_id: String,
+    backend: Backend,
+    adapter: AdapterConfig,
+    model: String,
+    options: BTreeMap<String, OptionValue>,
+    ref_str: String,
+    fallback_error_patterns: Vec<String>,
+}
+
+fn format_model_ref(backend_id: &str, model_id: &str, variant: Option<&str>) -> String {
+    match variant {
+        Some(v) if !v.trim().is_empty() => format!("{backend_id}/{model_id}@{v}"),
+        _ => format!("{backend_id}/{model_id}"),
+    }
 }
 
 #[derive(Debug, Serialize)]
@@ -856,26 +877,54 @@ impl VibeServer {
             }
         }
 
-        let mut fallback_models: Vec<(String, BTreeMap<String, OptionValue>)> = Vec::new();
-        if !role_cfg.fallback_models.is_empty() {
-            let backend_cfg = cfg.backend.get(&rp.profile.backend_id).ok_or_else(|| {
-                McpError::internal_error(
-                    format!("missing backend config: {}", rp.profile.backend_id),
+        let backend_cfg = cfg.backend.get(&rp.profile.backend_id).ok_or_else(|| {
+            McpError::internal_error(
+                format!("missing backend config: {}", rp.profile.backend_id),
+                None,
+            )
+        })?;
+        let mut candidates: Vec<ModelCandidate> = Vec::new();
+        let fallback_patterns = backend_cfg
+            .fallback
+            .as_ref()
+            .map(|f| f.patterns.clone())
+            .unwrap_or_default();
+        candidates.push(ModelCandidate {
+            backend_id: rp.profile.backend_id.clone(),
+            backend: rp.profile.backend,
+            adapter: rp.profile.adapter.clone(),
+            model: rp.profile.model.clone(),
+            options: rp.profile.options.clone(),
+            ref_str: format_model_ref(&rp.profile.backend_id, &rp.profile.model, None),
+            fallback_error_patterns: fallback_patterns,
+        });
+        if let Some(fallback) = backend_cfg.fallback.as_ref() {
+            let (backend_id, model_id, variant) = parse_role_model_ref(&fallback.model)
+                .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
+            let fallback_backend = Backend::parse(&backend_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("unsupported backend key: {backend_id}"),
                     None,
                 )
             })?;
-            for fallback_ref in &role_cfg.fallback_models {
-                let (backend_id, model_id, variant) = parse_role_model_ref(fallback_ref)
-                    .map_err(|e| McpError::invalid_params(e.to_string(), None))?;
-                if backend_id != rp.profile.backend_id {
-                    return Err(McpError::invalid_params(
-                        format!(
-                            "fallback model '{fallback_ref}' must use backend '{}'",
-                            rp.profile.backend_id
-                        ),
-                        None,
-                    ));
-                }
+            let fallback_cfg = cfg.backend.get(&backend_id).ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("missing backend config: {backend_id}"),
+                    None,
+                )
+            })?;
+            let adapter = fallback_cfg.adapter.clone().ok_or_else(|| {
+                McpError::invalid_params(
+                    format!("missing adapter config for backend: {backend_id}"),
+                    None,
+                )
+            })?;
+            let compatible = adapter
+                .filesystem_capabilities
+                .as_ref()
+                .map(|allowed| allowed.contains(&rp.profile.capabilities.filesystem))
+                .unwrap_or(true);
+            if compatible {
                 let options = if model_id == "default" {
                     if variant.is_some() {
                         return Err(McpError::invalid_params(
@@ -883,18 +932,17 @@ impl VibeServer {
                             None,
                         ));
                     }
-                    if let Some(model_cfg) = backend_cfg.models.get("default") {
+                    if let Some(model_cfg) = fallback_cfg.models.get("default") {
                         resolve_model_options(model_cfg, None)
                             .map_err(|e| McpError::invalid_params(e.to_string(), None))?
                     } else {
                         BTreeMap::new()
                     }
                 } else {
-                    let model_cfg = backend_cfg.models.get(&model_id).ok_or_else(|| {
+                    let model_cfg = fallback_cfg.models.get(&model_id).ok_or_else(|| {
                         McpError::invalid_params(
                             format!(
-                                "unknown fallback model '{model_id}' for backend '{}'",
-                                rp.profile.backend_id
+                                "unknown fallback model '{model_id}' for backend '{backend_id}'"
                             ),
                             None,
                         )
@@ -902,36 +950,59 @@ impl VibeServer {
                     resolve_model_options(model_cfg, variant.as_deref())
                         .map_err(|e| McpError::invalid_params(e.to_string(), None))?
                 };
-                fallback_models.push((model_id, options));
+                let ref_str = format_model_ref(&backend_id, &model_id, variant.as_deref());
+                let candidate_patterns = fallback_cfg
+                    .fallback
+                    .as_ref()
+                    .map(|f| f.patterns.clone())
+                    .unwrap_or_default();
+                candidates.push(ModelCandidate {
+                    backend_id,
+                    backend: fallback_backend,
+                    adapter,
+                    model: model_id,
+                    options,
+                    ref_str,
+                    fallback_error_patterns: candidate_patterns,
+                });
             }
         }
 
         let mut used_fallback: Option<String> = None;
         let mut last_err: Option<String> = None;
         let mut result: Option<backend::GenericResult> = None;
-        let mut candidates: Vec<(String, BTreeMap<String, OptionValue>)> = Vec::new();
-        candidates.push((rp.profile.model.clone(), rp.profile.options.clone()));
-        candidates.extend(fallback_models);
+        let mut used_backend_id = rp.profile.backend_id.clone();
+        let mut used_backend = rp.profile.backend;
+        let mut used_model = rp.profile.model.clone();
         let total_candidates = candidates.len();
-        for (idx, (model, options)) in candidates.into_iter().enumerate() {
+        for (idx, candidate) in candidates.into_iter().enumerate() {
+            let same_backend = candidate.backend_id == rp.profile.backend_id;
             let out = backend::run(backend::GenericOptions {
-                backend_id: rp.profile.backend_id.clone(),
-                adapter: rp.profile.adapter.clone(),
+                backend_id: candidate.backend_id.clone(),
+                adapter: candidate.adapter.clone(),
                 prompt: prompt_text.clone(),
                 workdir: repo_root.clone(),
-                session_id: session_id_to_use.clone(),
-                resume: resume_without_session,
-                model: model.clone(),
-                options,
+                session_id: if same_backend {
+                    session_id_to_use.clone()
+                } else {
+                    None
+                },
+                resume: if same_backend { resume_without_session } else { false },
+                model: candidate.model.clone(),
+                options: candidate.options,
                 capabilities: rp.profile.capabilities.clone(),
+                fallback_error_patterns: candidate.fallback_error_patterns.clone(),
                 timeout_secs,
             })
             .await;
             match out {
                 Ok(r) => {
                     if idx > 0 {
-                        used_fallback = Some(model);
+                        used_fallback = Some(candidate.ref_str.clone());
                     }
+                    used_backend_id = candidate.backend_id;
+                    used_backend = candidate.backend;
+                    used_model = candidate.model;
                     result = Some(r);
                     break;
                 }
@@ -979,7 +1050,7 @@ impl VibeServer {
                     repo_root: repo_root.to_string_lossy().to_string(),
                     role: role.clone(),
                     role_id: rp.role_id.clone(),
-                    backend: rp.profile.backend,
+                    backend: used_backend,
                     backend_session_id: backend_session_id.clone(),
                     sampling_history: Vec::new(),
                     updated_at_unix_secs: now_unix_secs(),
@@ -1045,10 +1116,10 @@ impl VibeServer {
 
         let out = VibeOutput {
             success: error.is_none(),
-            backend: rp.profile.backend_id.clone(),
+            backend: used_backend_id,
             role,
             role_id: rp.role_id,
-            model: Some(rp.profile.model.clone()),
+            model: Some(used_model),
             session_key,
             resumed,
             backend_session_id,
@@ -1285,11 +1356,9 @@ impl VibeServer {
 }
 
 fn is_model_error_message(msg: &str) -> bool {
-    let lower = msg.to_ascii_lowercase();
-    lower.contains("model_not_found")
-        || lower.contains("model not found")
-        || lower.contains("model is not supported")
-        || lower.contains("unknown model")
+    msg.trim_start()
+        .to_ascii_lowercase()
+        .starts_with("model_not_found:")
 }
 
 #[tool_handler]
@@ -1474,6 +1543,10 @@ mod tests {
         let cfg = r#"{
   "backend": {
     "codex": {
+      "fallback": {
+        "model": "codex/gpt-5.2",
+        "patterns": ["model_not_found"]
+      },
       "models": {
         "gpt-5.2-codex": { "options": {} },
         "gpt-5.2": { "options": {} }
@@ -1483,7 +1556,31 @@ mod tests {
   "roles": {
     "oracle": {
       "model": "codex/gpt-5.2-codex",
-      "fallback_models": ["codex/gpt-5.2"],
+      "personas": { "description": "d", "prompt": "p" },
+      "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
+    }
+  }
+}"#;
+        std::fs::write(path, cfg).unwrap();
+    }
+
+    fn write_codex_fallback_pattern_config(path: &Path) {
+        let cfg = r#"{
+  "backend": {
+    "codex": {
+      "fallback": {
+        "model": "codex/gpt-5.2",
+        "patterns": ["custom_not_found"]
+      },
+      "models": {
+        "gpt-5.2-codex": { "options": {} },
+        "gpt-5.2": { "options": {} }
+      }
+    }
+  },
+  "roles": {
+    "oracle": {
+      "model": "codex/gpt-5.2-codex",
       "personas": { "description": "d", "prompt": "p" },
       "capabilities": { "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }
     }
@@ -1542,6 +1639,36 @@ mod tests {
             log.display(),
             log.display(),
             bad_model
+        );
+        {
+            let mut f = std::fs::File::create(bin).unwrap();
+            f.write_all(script.as_bytes()).unwrap();
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = std::fs::metadata(bin).unwrap().permissions();
+            perms.set_mode(0o755);
+            std::fs::set_permissions(bin, perms).unwrap();
+        }
+    }
+
+    fn write_fake_cli_with_custom_model_error_once(
+        bin: &Path,
+        log: &Path,
+        bad_model: &str,
+        message: &str,
+    ) {
+        let msg = message
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n");
+        let script = format!(
+            "#!/bin/sh\nset -e\n\nprintf '%s ' \"$@\" >> \"{}\"\nprintf '\\n' >> \"{}\"\n\nif echo \"$@\" | grep -q '{}'; then\n  printf '%s\\n' '{{\"type\":\"error\",\"message\":\"{}\"}}'\n  exit 0\nfi\n\nprintf '%s\\n' '{{\"type\":\"thread.started\",\"thread_id\":\"sess-1\"}}'\nprintf '%s\\n' '{{\"type\":\"item.completed\",\"item\":{{\"type\":\"agent_message\",\"text\":\"ok\"}}}}'\n",
+            log.display(),
+            log.display(),
+            bad_model,
+            msg
         );
         {
             let mut f = std::fs::File::create(bin).unwrap();
@@ -1858,6 +1985,48 @@ mod tests {
         let log_text = read_log(&log);
         assert!(log_text.contains("gpt-5.2-codex"));
         assert!(log_text.contains("gpt-5.2"));
+    }
+
+    #[tokio::test]
+    async fn model_fallback_uses_configured_error_patterns() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let cfg_path = td.path().join("config.json");
+        write_codex_fallback_pattern_config(&cfg_path);
+        let store = SessionStore::new(td.path().join("sessions.json"));
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex-model.log");
+        write_fake_cli_with_custom_model_error_once(&fake, &log, "gpt-5.2-codex", "custom_not_found");
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let out = server
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "ping".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: true,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: None,
+                    validate_patch: false,
+                },
+            )
+            .await
+            .unwrap();
+
+        let warn = out.warnings.unwrap_or_default();
+        assert!(warn.contains("model fallback used"));
+        assert!(warn.contains("codex/gpt-5.2"));
     }
 
     #[tokio::test]
