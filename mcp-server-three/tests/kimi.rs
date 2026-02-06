@@ -106,6 +106,7 @@ async fn run_role(
                 timeout_secs: Some(300),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await
@@ -214,6 +215,7 @@ async fn e2e_kimi_continue_used_when_history_exists() {
                 timeout_secs: Some(5),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await
@@ -236,6 +238,7 @@ async fn e2e_kimi_continue_used_when_history_exists() {
                 timeout_secs: Some(5),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await

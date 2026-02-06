@@ -27,6 +27,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
 
 2. Call the MCP tool `mcp__three__info` with:
    - `cd`: `.`
+   - `client`: `"claude"`
 
    If any of these roles are missing or `enabled=false`, stop and explain:
    - `oracle`, `builder`, `researcher`
@@ -46,6 +47,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
      - `PROMPT`: use the Round 1 prompt template below
      - `cd`: `.`
      - `role`: participant role
+     - `client`: `"claude"`
      - `force_new_session`: `true`
    - Capture each output + `backend_session_id` (for round 2/3).
 
@@ -60,6 +62,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
      - `PROMPT`: Round 2 prompt (includes other participants’ views + disagreements)
      - `cd`: `.`
      - `role`: participant role
+     - `client`: `"claude"`
      - `session_id`: that participant’s Round 1 session id
      - `force_new_session`: `false`
 
@@ -72,6 +75,7 @@ You are the Conductor. You host the session, pick participants, and synthesize t
      - `PROMPT`: Round 3 prompt (emerging consensus + remaining concerns)
      - `cd`: `.`
      - `role`: participant role
+     - `client`: `"claude"`
      - `session_id`: that participant’s Round 1 session id
      - `force_new_session`: `false`
 

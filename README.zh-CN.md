@@ -5,7 +5,9 @@
 
 > **面向复杂软件任务的多智能体、多大模型编排系统**
 
-Three 是一个 MCP server + 插件系统，将 Claude Code 转变为多角色编程驾驶舱。将任务委托给由不同大模型（Codex、Gemini、Claude）驱动的专业智能体，同时保持单一、连贯的对话上下文。
+Three 是面向 Codex、Gemini、Claude 的多智能体、多大模型 CLI（MCP server + 插件）。
+它编排基于角色的智能体，支持会话复用、安全能力控制、并行扇出与圆桌共识。
+使用 `/three:conductor` 分派复杂任务，或用 `/three:roundtable` 发起多轮讨论以处理艰难决策。
 
 ## 为什么选择 Three？
 
@@ -51,11 +53,14 @@ Three 是一个 MCP server + 插件系统，将 Claude Code 转变为多角色�
 - `docs/cli-*.md` — 各 CLI 的参数映射、会话续接和特性说明
 - `docs/config-schema.md` — 配置字段、默认值与解析规则
 
+客户端专用配置：当 MCP `client` 参数（或 `THREE_CLIENT`）存在时，优先加载 `config-<client>.json`。
+
 ## CLI 适配矩阵
 
 说明：`examples/config.json` 是“技术配置-only”模板（不包含 persona 覆盖）。
 内置 persona 可通过 `roles.<id>.personas` 覆盖（最小示例见 `docs/config-schema.md`）。
 Personas 内置于 MCP Server；`roles.<id>.personas` 为可选覆盖项。
+如果主 CLI 是 Codex，可参考 `examples/config-codex.json`（默认避免自调用 Codex）。
 
 所有后端都由内置的 adapter catalog 驱动（MiniJinja `args_template` + `output_parser`）。  
 模型写法为 `backend/model@variant`（variant 可选）。variant 会覆盖 `options`，

@@ -17,6 +17,7 @@ Behavior:
 
 2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
    - `cd`: `.`
+   - `client`: `"claude"`
 
    If the role `builder` is missing or `enabled=false`, stop and explain:
    - the role is missing in `~/.config/three/config.json`
@@ -33,6 +34,7 @@ Behavior:
    - `PROMPT`: the user's task prompt
    - `cd`: `.`
    - `role`: `builder`
+   - `client`: `"claude"`
 
    If code-change:
    - `contract`: `patch_with_citations`

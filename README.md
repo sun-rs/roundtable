@@ -5,7 +5,9 @@
 
 > **Multi-agent, multi-LLM orchestration system for complex software tasks**
 
-Three is an MCP server + plugin system that turns Claude Code into a multi-role coding cockpit. Delegate tasks to specialist agents powered by different LLMs (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
+Three is a multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+It orchestrates role-based agents with session-aware reuse, safe capability controls, parallel fan-out, and roundtable consensus.
+Use `/three:conductor` to dispatch complex work across multiple LLMs, or `/three:roundtable` to run multi-round discussions for tough decisions.
 
 ## Why Three?
 
@@ -51,9 +53,12 @@ Execute independent tasks concurrently with partial failure handling.
 - `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
 - `docs/config-schema.md` — config fields, defaults, and role resolution rules
 
+Client-specific configs: `config-<client>.json` is preferred when the MCP `client` param (or `THREE_CLIENT`) is set.
+
 Note: `examples/config.json` is a technical-only template (no persona overrides).
 Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona for that role
 (see `docs/config-schema.md` for a minimal override example).
+For Codex-hosted workflows, see `examples/config-codex.json` (roles avoid self-calling Codex by default).
 
 ## CLI adapter matrix
 

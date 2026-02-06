@@ -15,6 +15,7 @@ Persona previews come from built-in defaults unless overridden in config.
 
 1. Call the MCP tool `mcp__three__info` with:
    - `cd`: `.`
+   - `client`: `"claude"`
 
 2. Present a compact table with:
    - role

@@ -60,17 +60,11 @@
         "gemini-3-pro-preview": {},
         "gemini-3-flash-preview": {}
       }
-    },
-    "opencode": {
-      "timeout_secs": 600,
-      "models": {
-        "kimi-for-coding/k2p5": {}
-      }
     }
   },
   "roles": {
     "oracle": {
-      "model": "codex/gpt-5.2@xhigh",
+      "model": "gemini/gemini-3-pro-preview",
       "timeout_secs": 900
     },
     "builder": {

@@ -105,6 +105,7 @@ async fn run_role(
                 timeout_secs: Some(300),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await

@@ -449,11 +449,13 @@ impl VibeServer {
             ));
         }
 
+        let client_hint = resolve_client_hint(args.client.as_deref())?;
         let RoundtableArgs {
             topic,
             participants,
             moderator,
             timeout_secs,
+            client: _client,
             cd: _,
         } = args;
 
@@ -497,6 +499,7 @@ impl VibeServer {
                 timeout_secs: timeout_override,
                 contract: None,
                 validate_patch: false,
+                client: client_hint.clone(),
             };
             tasks.push(FanoutTaskSpec {
                 name: Some(name),
@@ -506,7 +509,7 @@ impl VibeServer {
         }
 
         let results = self
-            .run_fanout_internal(Some(peer.clone()), &repo_root, tasks)
+            .run_fanout_internal(Some(peer.clone()), &repo_root, tasks, client_hint.clone())
             .await?;
 
         let mut contributions = Vec::new();
@@ -578,6 +581,7 @@ impl VibeServer {
                     timeout_secs: timeout_override,
                     contract: None,
                     validate_patch: false,
+                    client: client_hint.clone(),
                 })
                 .await;
 
@@ -644,23 +648,17 @@ impl VibeServer {
             ));
         }
 
-        let mut sources: Vec<String> = Vec::new();
-        if let Some(p) = self.config_loader.user_config_path() {
-            if p.exists() {
-                sources.push(p.display().to_string());
-            }
-        }
-        for p in ConfigLoader::project_config_paths(&repo_root) {
-            if p.exists() {
-                sources.push(p.display().to_string());
-                break;
-            }
-        }
-
-        let cfg = self
+        let client_hint = resolve_client_hint(args.client.as_deref())?;
+        let cfg_result = self
             .config_loader
-            .load_for_repo(&repo_root)
+            .load_for_repo_with_client(&repo_root, client_hint.as_deref())
             .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
+        let sources: Vec<String> = cfg_result
+            .sources
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect();
+        let cfg = cfg_result.config;
 
         let Some(cfg) = cfg else {
             let out = InfoOutput {
@@ -821,9 +819,9 @@ impl VibeServer {
 
         let cfg_for_repo = self
             .config_loader
-            .load_for_repo(&repo_root)
+            .load_for_repo_with_client(&repo_root, resolve_client_hint(args.client.as_deref())?.as_deref())
             .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
-        let cfg = cfg_for_repo.ok_or_else(|| {
+        let cfg = cfg_for_repo.config.ok_or_else(|| {
             McpError::invalid_params(
                 "no config found (create ~/.config/three/config.json)",
                 None,
@@ -1214,6 +1212,7 @@ impl VibeServer {
         }
 
         let repo_cd = repo_root.to_string_lossy().to_string();
+        let client_hint = resolve_client_hint(args.client.as_deref())?;
         let mut tasks: Vec<FanoutTaskSpec> = Vec::with_capacity(args.tasks.len());
         for task in args.tasks {
             let role_opt = task
@@ -1238,6 +1237,7 @@ impl VibeServer {
                 timeout_secs,
                 contract: task.contract,
                 validate_patch: task.validate_patch,
+                client: client_hint.clone(),
             };
             tasks.push(FanoutTaskSpec {
                 name: task.name,
@@ -1246,7 +1246,9 @@ impl VibeServer {
             });
         }
 
-        let results = self.run_fanout_internal(peer, &repo_root, tasks).await?;
+        let results = self
+            .run_fanout_internal(peer, &repo_root, tasks, client_hint.clone())
+            .await?;
 
         let mut any_error = false;
         let mut outputs: Vec<BatchResult> = Vec::new();
@@ -1296,12 +1298,13 @@ impl VibeServer {
         peer: Option<Peer<RoleServer>>,
         repo_root: &PathBuf,
         tasks: Vec<FanoutTaskSpec>,
+        client: Option<String>,
     ) -> Result<Vec<FanoutResult>, McpError> {
         let cfg_for_repo = self
             .config_loader
-            .load_for_repo(repo_root)
+            .load_for_repo_with_client(repo_root, client.as_deref())
             .map_err(|e| McpError::internal_error(format!("failed to load config: {e}"), None))?;
-        let cfg = cfg_for_repo.ok_or_else(|| {
+        let cfg = cfg_for_repo.config.ok_or_else(|| {
             McpError::invalid_params(
                 "no config found (create ~/.config/three/config.json)",
                 None,
@@ -1484,6 +1487,29 @@ mod tests {
     }
   }
 }"#;
+        std::fs::write(path, cfg).unwrap();
+    }
+
+    fn write_codex_test_config_with_model(path: &Path, model_id: &str) {
+        let cfg = format!(
+            r#"{{
+  "backend": {{
+    "codex": {{
+      "models": {{
+        "{model_id}": {{ "options": {{}} }}
+      }}
+    }}
+  }},
+  "roles": {{
+    "oracle": {{
+      "model": "codex/{model_id}",
+      "personas": {{ "description": "d", "prompt": "p" }},
+      "capabilities": {{ "filesystem": "read-only", "shell": "deny", "network": "deny", "tools": ["read"] }}
+    }}
+  }}
+}}"#,
+            model_id = model_id
+        );
         std::fs::write(path, cfg).unwrap();
     }
 
@@ -1728,6 +1754,51 @@ mod tests {
 
 
     #[tokio::test]
+    async fn client_config_prefers_client_specific_file() {
+        let td = tempfile::tempdir().unwrap();
+        let repo = td.path().join("repo");
+        std::fs::create_dir_all(&repo).unwrap();
+
+        let store = SessionStore::new(td.path().join("sessions.json"));
+
+        let cfg_path = td.path().join("config.json");
+        write_codex_test_config_with_model(&cfg_path, "gpt-5.2-codex");
+        let cfg_client = td.path().join("config-claude.json");
+        write_codex_test_config_with_model(&cfg_client, "gpt-5.3-codex");
+
+        let server = VibeServer::new(codex_loader(&cfg_path), store);
+
+        let fake = td.path().join("fake-codex.sh");
+        let log = td.path().join("codex.log");
+        write_fake_cli(&fake, &log, "sess-cfg-1", "pong");
+        let _env = crate::test_utils::scoped_codex_bin(fake.to_string_lossy().as_ref());
+
+        let out = server
+            .run_vibe_internal(
+                None,
+                VibeArgs {
+                    prompt: "ping".to_string(),
+                    cd: repo.to_string_lossy().to_string(),
+                    role: Some("oracle".to_string()),
+                    backend: None,
+                    model: None,
+                    reasoning_effort: None,
+                    session_id: None,
+                    force_new_session: true,
+                    session_key: None,
+                    timeout_secs: Some(5),
+                    contract: None,
+                    validate_patch: false,
+                    client: Some("claude".to_string()),
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(out.model.as_deref(), Some("gpt-5.3-codex"));
+    }
+
+    #[tokio::test]
     async fn session_reuse_uses_stored_backend_session_id() {
         let td = tempfile::tempdir().unwrap();
         let repo = td.path().join("repo");
@@ -1771,6 +1842,7 @@ mod tests {
             timeout_secs: Some(5),
             contract: None,
             validate_patch: false,
+            client: None,
         };
         let out1 = server.run_vibe_internal(None, args1).await.unwrap();
         assert_eq!(out1.success, true);
@@ -1790,6 +1862,7 @@ mod tests {
             timeout_secs: Some(5),
             contract: None,
             validate_patch: false,
+            client: None,
         };
         let out2 = server.run_vibe_internal(None, args2).await.unwrap();
         assert_eq!(out2.success, true);
@@ -1838,6 +1911,7 @@ mod tests {
                         timeout_secs: Some(5),
                         contract: None,
                         validate_patch: false,
+                        client: None,
                     },
                 )
                 .await
@@ -1866,6 +1940,7 @@ mod tests {
                         timeout_secs: Some(5),
                         contract: None,
                         validate_patch: false,
+                        client: None,
                     },
                 )
                 .await
@@ -1915,6 +1990,7 @@ mod tests {
                     timeout_secs: Some(5),
                     contract: None,
                     validate_patch: false,
+                    client: None,
                 },
             )
             .await
@@ -1963,6 +2039,7 @@ mod tests {
                     timeout_secs: Some(5),
                     contract: None,
                     validate_patch: false,
+                    client: None,
                 },
             )
             .await
@@ -2012,6 +2089,7 @@ mod tests {
                     timeout_secs: Some(5),
                     contract: None,
                     validate_patch: false,
+                    client: None,
                 },
             )
             .await
@@ -2058,6 +2136,7 @@ mod tests {
                     timeout_secs: Some(5),
                     contract: None,
                     validate_patch: false,
+                    client: None,
                 },
             )
             .await
@@ -2106,6 +2185,7 @@ mod tests {
         let out = server
             .info(Parameters(InfoArgs {
                 cd: repo.to_string_lossy().to_string(),
+                client: None,
             }))
             .await
             .unwrap();
@@ -2159,6 +2239,7 @@ mod tests {
                 timeout_secs: Some(5),
                 contract: None,
                 validate_patch: false,
+                client: None,
             })
             .await
             .unwrap();
@@ -2214,6 +2295,7 @@ mod tests {
                 timeout_secs: Some(5),
                 contract: Some(OutputContract::PatchWithCitations),
                 validate_patch: false,
+                client: None,
             })
             .await
             .unwrap();
@@ -2304,6 +2386,7 @@ mod tests {
                 timeout_secs: Some(5),
                 contract: Some(OutputContract::PatchWithCitations),
                 validate_patch: true,
+                client: None,
             })
             .await
             .unwrap();
@@ -2353,6 +2436,7 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
                 BatchArgs {
                     cd: repo.to_string_lossy().to_string(),
                     timeout_secs: Some(5),
+                    client: None,
                     tasks: vec![
                         BatchTask {
                             prompt: "ok".to_string(),
@@ -2453,6 +2537,7 @@ echo '{"type":"item.completed","item":{"type":"agent_message","text":"ok"}}'
                 BatchArgs {
                     cd: repo.to_string_lossy().to_string(),
                     timeout_secs: Some(5),
+                    client: None,
                     tasks: vec![
                         BatchTask {
                             prompt: "a".to_string(),

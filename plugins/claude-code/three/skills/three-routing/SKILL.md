@@ -19,6 +19,7 @@ Roles and permissions live in config (model, timeout, capabilities). Always pref
 - inject the built-in persona prompt (config personas can override but are optional)
 
 Use `mcp__three__info` to see which roles are enabled and their summaries.
+For Claude Code calls, always include `client: "claude"` in MCP tool parameters.
 
 ## Conductor (you)
 

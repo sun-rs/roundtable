@@ -882,7 +882,7 @@ mod tests {
         std::fs::create_dir_all(&repo).unwrap();
         let cfg_path = crate::test_utils::example_config_path();
         let args = render_args_for_role(&cfg_path, &repo, "researcher");
-        assert_gemini_render(&args, "gemini-3-pro-preview", false, false);
+        assert_gemini_render(&args, "gemini-3-pro-preview", true, true);
     }
 
     #[test]

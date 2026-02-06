@@ -9,6 +9,28 @@ The config has exactly two top-level keys:
 - `backend`
 - `roles`
 
+## Config file selection (client-aware)
+
+Three supports **client-specific configs**. If a client hint is provided, the server prefers
+`config-<client>.json` before falling back to `config.json`.
+
+Client hint sources (first match wins):
+
+- MCP parameter: `client` (e.g. `"claude"`, `"codex"`, `"opencode"`)
+- Environment variable: `THREE_CLIENT` (used when calling the server without a plugin)
+
+Search order per layer:
+
+1. **User config**
+   - `~/.config/three/config-<client>.json`
+   - `~/.config/three/config.json`
+2. **Project config** (overrides user)
+   - `./.three/config-<client>.json`
+   - `./.three/config.json`
+   - `./.three.json` (legacy fallback; no client-specific variant)
+
+If no client hint is provided, only `config.json` / `.three.json` are considered.
+
 ## backend
 
 `backend` is a map keyed by backend name. The key **is the command** and must be one of:

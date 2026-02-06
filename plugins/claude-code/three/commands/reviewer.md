@@ -12,6 +12,7 @@ Use this to get an adversarial review that focuses on regressions and correctnes
 
 2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
    - `cd`: `.`
+   - `client`: `"claude"`
 
    If the role `reviewer` is missing or `enabled=false`, stop and explain:
    - the role is missing in `~/.config/three/config.json`
@@ -22,6 +23,7 @@ Use this to get an adversarial review that focuses on regressions and correctnes
    - `PROMPT`: the user's prompt
    - `cd`: `.`
    - `role`: `reviewer`
+   - `client`: `"claude"`
    - `contract`: `patch_with_citations`
    - `validate_patch`: `true`
    - `timeout_secs`: `180` (optional; prefer role config if set)

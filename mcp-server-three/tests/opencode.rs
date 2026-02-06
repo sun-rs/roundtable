@@ -84,6 +84,7 @@ async fn run_role(
                 timeout_secs: Some(300),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await
@@ -217,6 +218,7 @@ async fn e2e_role_capability_rejected() {
                 timeout_secs: Some(5),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await
@@ -263,6 +265,7 @@ async fn e2e_opencode_picks_last_text_event() {
                 timeout_secs: Some(5),
                 contract: None,
                 validate_patch: false,
+                client: None,
             },
         )
         .await

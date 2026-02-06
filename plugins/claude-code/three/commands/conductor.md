@@ -31,12 +31,13 @@ You do **not** need to include persona text. The MCP server injects built-in per
 
 1. Call `mcp__three__info` with:
    - `cd`: `.`
+   - `client`: `"claude"`
 
    Use this to list enabled roles and confirm availability.
 
 2. Choose a delegation pattern:
-   - **Single expert**: call `mcp__three__three` with `role=<role>`
-   - **Parallel tasks**: call `mcp__three__batch` for independent work items
+   - **Single expert**: call `mcp__three__three` with `role=<role>` and `client="claude"`
+   - **Parallel tasks**: call `mcp__three__batch` for independent work items and include `client="claude"`
    - **Multi-role discussion**: use `/three:roundtable` **only when** the task is complex, ambiguous, or has major tradeoffs.
 
 3. If delegating to `builder` for code changes, enforce:

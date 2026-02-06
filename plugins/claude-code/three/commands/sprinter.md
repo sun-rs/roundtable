@@ -12,6 +12,7 @@ Use this for quick options and lightweight brainstorming.
 
 2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
    - `cd`: `.`
+   - `client`: `"claude"`
 
    If the role `sprinter` is missing or `enabled=false`, stop and explain:
    - the role is missing in `~/.config/three/config.json`
@@ -22,5 +23,6 @@ Use this for quick options and lightweight brainstorming.
    - `PROMPT`: the user's task prompt
    - `cd`: `.`
    - `role`: `sprinter`
+   - `client`: `"claude"`
 
 4. Return the result to the user. If `success=false`, explain the error and suggest a retry with `force_new_session=true`.
