@@ -3,14 +3,42 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-Multi-agent, multi-LLM vibe-coding CLI system (MCP server + plugins) for Codex, Gemini, and Claude.
+> **Multi-agent, multi-LLM orchestration system for complex software tasks**
 
-What you get:
-- Role-based agents with session-aware reuse and safe capability mapping
-- Parallel fan-out and roundtable consensus to cross-check and converge faster
-- Lower prompt overhead with clear, auditable outputs
+Three is an MCP server + plugin system that turns Claude Code into a multi-role coding cockpit. Delegate tasks to specialist agents powered by different LLMs (Codex, Gemini, Claude) while maintaining a single, coherent conversation context.
 
-Use `/three:conductor` to decompose and dispatch complex work across multiple LLMs. Use `/three:roundtable` to run multi-round discussions for tough decisions and designs.
+## Why Three?
+
+Effective engineering requires multiple perspectives:
+
+- **🔮 Oracle** — Architecture, trade-offs, long-term risks
+- **🔨 Builder** — Implementation feasibility, correct execution
+- **🔍 Researcher** — Codebase and documentation grounding
+- **✅ Reviewer** — Quality and correctness checks
+- **⚡ Critic** — Contrarian risk analysis
+- **🚀 Sprinter** — Fast idea generation
+
+## Key Features
+
+### 🎯 Role-Based Agents
+Specialized agents with session-aware reuse and safe capability controls (filesystem, shell, network, tools).
+
+### 🔄 Cross-Model Validation
+Split complex tasks across multiple LLMs, cross-check results, and converge faster with less prompt overhead.
+
+### 🤝 Roundtable Consensus
+Run multi-round discussions where different models debate and synthesize decisions for tough architectural choices.
+
+### ⚡ Parallel Fan-Out
+Execute independent tasks concurrently with partial failure handling.
+
+## Quick Commands
+
+- **`/three:conductor <task>`** — Orchestrate complex work and decide when to use roundtable
+- **`/three:roundtable <topic>`** — Multi-role consensus workflow (1-3 rounds)
+- **`/three:oracle <task>`** — Architecture and trade-off analysis
+- **`/three:builder <task>`** — Implementation and debugging
+- **`/three:reviewer <request>`** — Code review and risk finding
 
 ## Repo layout
 

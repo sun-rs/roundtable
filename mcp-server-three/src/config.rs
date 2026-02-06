@@ -16,6 +16,11 @@ pub struct ConfigLoader {
     user_config_path: Option<PathBuf>,
 }
 
+pub struct ConfigLoadResult {
+    pub config: Option<VibeConfig>,
+    pub sources: Vec<PathBuf>,
+}
+
 impl ConfigLoader {
     pub fn new(user_config_path: Option<PathBuf>) -> Self {
         Self { user_config_path }
@@ -33,22 +38,71 @@ impl ConfigLoader {
         [a, b]
     }
 
+    pub fn project_config_paths_for_client(repo_root: &Path, client: Option<&str>) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        if let Some(client) = client {
+            if !client.is_empty() {
+                paths.push(repo_root.join(".three").join(format!("config-{client}.json")));
+            }
+        }
+        paths.extend(Self::project_config_paths(repo_root));
+        paths
+    }
+
+    pub fn user_config_paths_for_client(&self, client: Option<&str>) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        let Some(path) = self.user_config_path.as_ref() else {
+            return paths;
+        };
+        let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if file_name == "config.json" {
+            if let Some(client) = client {
+                if !client.is_empty() {
+                    if let Some(dir) = path.parent() {
+                        paths.push(dir.join(format!("config-{client}.json")));
+                    }
+                }
+            }
+            paths.push(path.clone());
+        } else {
+            paths.push(path.clone());
+        }
+        paths
+    }
+
     /// Load config for a repo, merging user-level config with a project override.
     ///
     /// Precedence: project overrides user. If neither exists, returns None.
     pub fn load_for_repo(&self, repo_root: &Path) -> Result<Option<VibeConfig>> {
-        let user_cfg = match self.user_config_path() {
-            Some(p) if p.exists() => Some(VibeConfig::load(p)?),
-            _ => None,
-        };
+        Ok(self
+            .load_for_repo_with_client(repo_root, None)?
+            .config)
+    }
+
+    pub fn load_for_repo_with_client(
+        &self,
+        repo_root: &Path,
+        client: Option<&str>,
+    ) -> Result<ConfigLoadResult> {
+        let mut sources: Vec<PathBuf> = Vec::new();
+
+        let mut user_cfg: Option<VibeConfig> = None;
+        for p in self.user_config_paths_for_client(client) {
+            if p.exists() {
+                user_cfg = Some(VibeConfig::load(&p)?);
+                sources.push(p);
+                break;
+            }
+        }
 
         let mut project_cfg: Option<VibeConfig> = None;
-        for p in Self::project_config_paths(repo_root) {
+        for p in Self::project_config_paths_for_client(repo_root, client) {
             if p.exists() {
                 project_cfg =
                     Some(VibeConfig::load(&p).with_context(|| {
                         format!("failed to load project config: {}", p.display())
                     })?);
+                sources.push(p);
                 break;
             }
         }
@@ -65,7 +119,7 @@ impl ConfigLoader {
             apply_adapter_catalog(cfg_val, &catalog);
         }
 
-        Ok(cfg)
+        Ok(ConfigLoadResult { config: cfg, sources })
     }
 }
 

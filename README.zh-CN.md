@@ -3,14 +3,42 @@
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
 
-面向 Codex、Gemini、Claude 的多智能体、多大模型 Vibe‑Coding CLI 系统（MCP server + plugins）。
+> **面向复杂软件任务的多智能体、多大模型编排系统**
 
-你可以获得：
-- 角色化代理 + 会话复用 + 安全能力映射
-- 并行分发与圆桌共识，交叉验证并更快收敛
-- 更低的提示词开销与可审计输出
+Three 是一个 MCP server + 插件系统，将 Claude Code 转变为多角色编程驾驶舱。将任务委托给由不同大模型（Codex、Gemini、Claude）驱动的专业智能体，同时保持单一、连贯的对话上下文。
 
-通过 `/three:conductor` 将复杂指令拆分并分派给多个 LLM，通过 `/three:roundtable` 发起多轮讨论以汇聚复杂方案与决策。
+## 为什么选择 Three？
+
+高效的工程实践需要多个视角：
+
+- **🔮 Oracle（预言家）** — 架构设计、权衡分析、长期风险
+- **🔨 Builder（建造者）** — 实现可行性、正确执行
+- **🔍 Researcher（研究员）** — 代码库和文档检索
+- **✅ Reviewer（审查员）** — 质量和正确性检查
+- **⚡ Critic（批评家）** — 逆向风险分析
+- **🚀 Sprinter（冲刺者）** — 快速创意生成
+
+## 核心特性
+
+### 🎯 角色化智能体
+专业化智能体，具备会话感知复用和安全能力控制（文件系统、Shell、网络、工具）。
+
+### 🔄 跨模型验证
+将复杂任务分配给多个大模型，交叉验证结果，以更少的提示词开销更快收敛。
+
+### 🤝 圆桌共识
+运行多轮讨论，让不同模型辩论并综合决策，用于艰难的架构选择。
+
+### ⚡ 并行扇出
+并发执行独立任务，支持部分失败处理。
+
+## 快速命令
+
+- **`/three:conductor <task>`** — 编排复杂工作并决定何时使用圆桌讨论
+- **`/three:roundtable <topic>`** — 多角色共识工作流（1-3 轮）
+- **`/three:oracle <task>`** — 架构和权衡分析
+- **`/three:builder <task>`** — 实现和调试
+- **`/three:reviewer <request>`** — 代码审查和风险发现
 
 ## 目录结构
 

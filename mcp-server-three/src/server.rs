@@ -66,6 +66,10 @@ pub struct VibeArgs {
     /// If true, run `git apply --check` on extracted unified diff patches.
     #[serde(default)]
     pub validate_patch: bool,
+
+    /// Optional client identifier (e.g., claude|codex|opencode)
+    #[serde(default)]
+    pub client: Option<String>,
 }
 
 /// Input parameters for the roundtable tool.
@@ -88,6 +92,10 @@ pub struct RoundtableArgs {
     /// Default timeout in seconds for each participant (default: 600)
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+
+    /// Optional client identifier (e.g., claude|codex|opencode)
+    #[serde(default)]
+    pub client: Option<String>,
 }
 
 /// Input parameters for the batch tool.
@@ -102,6 +110,10 @@ pub struct BatchArgs {
     /// Default timeout in seconds for each task (default: 600)
     #[serde(default)]
     pub timeout_secs: Option<u64>,
+
+    /// Optional client identifier (e.g., claude|codex|opencode)
+    #[serde(default)]
+    pub client: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
@@ -160,6 +172,10 @@ pub struct BatchTask {
 pub struct InfoArgs {
     /// Working directory (repo root recommended)
     pub cd: String,
+
+    /// Optional client identifier (e.g., claude|codex|opencode)
+    #[serde(default)]
+    pub client: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, schemars::JsonSchema)]
@@ -269,6 +285,29 @@ fn format_model_ref(backend_id: &str, model_id: &str, variant: Option<&str>) -> 
         Some(v) if !v.trim().is_empty() => format!("{backend_id}/{model_id}@{v}"),
         _ => format!("{backend_id}/{model_id}"),
     }
+}
+
+fn resolve_client_hint(explicit: Option<&str>) -> Result<Option<String>, McpError> {
+    let raw = explicit
+        .map(|s| s.to_string())
+        .or_else(|| std::env::var("THREE_CLIENT").ok());
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if !trimmed
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+    {
+        return Err(McpError::invalid_params(
+            "client must be alphanumeric/underscore/dash".to_string(),
+            None,
+        ));
+    }
+    Ok(Some(trimmed.to_ascii_lowercase()))
 }
 
 #[derive(Debug, Serialize)]
