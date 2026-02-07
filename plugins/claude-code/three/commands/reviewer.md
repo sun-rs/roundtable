@@ -4,28 +4,21 @@ description: Review a change and propose fixes (PATCH + CITATIONS) via three MCP
 
 # /three:reviewer
 
-Use this to get an adversarial review that focuses on regressions and correctness.
+Use this for adversarial review (find regressions, risks, and fixes).
+
+## Role boundary
+
+You are the main Conductor in this chat. Do not act as `reviewer` directly; delegate to `reviewer` via MCP and then report/synthesize that role's output.
 
 ## Steps
 
-1. Take the text after the command as the review prompt.
-
-2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
-   - `cd`: `.`
-   - `client`: `"claude"`
-
-   If the role `reviewer` is missing or `enabled=false`, stop and explain:
-   - the role is missing in `~/.config/three/config.json`
-   - list available roles
-   - suggest either adding a `reviewer` role or choosing a different role and re-running
-
-3. Call the MCP tool `mcp__three__three` with:
-   - `PROMPT`: the user's prompt
-   - `cd`: `.`
-   - `role`: `reviewer`
-   - `client`: `"claude"`
-   - `contract`: `patch_with_citations`
-   - `validate_patch`: `true`
-   - `timeout_secs`: `180` (optional; prefer role config if set)
-
-4. Summarize findings, then include the patch output.
+1. Read the text after command as review prompt.
+2. If this workflow already has `mcp__three__info` result for `cd="."` + `client="claude"`, reuse it; otherwise call `mcp__three__info`.
+3. If `reviewer` is missing/disabled, stop and list available roles.
+4. Call `mcp__three__batch` with **one** task:
+   - `role: "reviewer"`
+   - `PROMPT: <review prompt>`
+   - `force_new_session: false` (unless user explicitly asks reset)
+   - `contract: "patch_with_citations"`
+   - `validate_patch: true`
+5. Present findings first, then patch output.

@@ -32,7 +32,6 @@ done
 - `$three-roundtable` for 1-3 discussion rounds with consensus synthesis
 - `$three-oracle|three-builder|three-researcher|three-reviewer|three-critic|three-sprinter` for direct specialist calls
 - `$three-info` for role/model diagnostics
-- `$three-routing` for routing/delegation policy
 
 All skills call MCP with `client: "codex"`, so the server prefers
 `config-codex.json` when present.

@@ -6,38 +6,19 @@ description: Implementation pass (PATCH + CITATIONS) via three MCP
 
 Use this for implementation and bug fixes.
 
-Behavior:
+## Role boundary
 
-- If the request is clearly about making a code change, enforce `PATCH + CITATIONS` and validate with `git apply --check`.
-- If the request is informational (e.g. "what model are you?", "explain this module"), do NOT require a patch.
+You are the main Conductor in this chat. Do not act as `builder` directly; delegate to `builder` via MCP and then report/synthesize that role's output.
 
 ## Steps
 
-1. Take the text after the command as the task prompt.
-
-2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
-   - `cd`: `.`
-   - `client`: `"claude"`
-
-   If the role `builder` is missing or `enabled=false`, stop and explain:
-   - the role is missing in `~/.config/three/config.json`
-   - list available roles
-   - suggest either adding a `builder` role or choosing a different role and re-running
-
-3. Decide whether this is a code-change request.
-
-   Treat as code-change if the user asks to: implement, fix, refactor, rename, add, remove, update, change files, or provides a diff/stacktrace and asks for a fix.
-
-4. Call the MCP tool `mcp__three__three` with:
-
-   Always:
-   - `PROMPT`: the user's task prompt
-   - `cd`: `.`
-   - `role`: `builder`
-   - `client`: `"claude"`
-
-   If code-change:
-   - `contract`: `patch_with_citations`
-   - `validate_patch`: `true`
-
-5. If the tool returns `success=false`, do NOT guess. Ask for clarification or rerun with a narrower scope.
+1. Read the text after command as task prompt.
+2. If this workflow already has `mcp__three__info` result for `cd="."` + `client="claude"`, reuse it; otherwise call `mcp__three__info`.
+3. If `builder` is missing/disabled, stop and list available roles.
+4. Detect code-change intent.
+5. Call `mcp__three__batch` with **one** task:
+   - `role: "builder"`
+   - `PROMPT: <user task>`
+   - `force_new_session: false` (unless user explicitly asks reset)
+   - If code-change: `contract: "patch_with_citations"`, `validate_patch: true`
+6. Return the single task result; if failed, do not guess.

@@ -5,20 +5,17 @@ description: Use Researcher for evidence from codebase/docs/web with concrete re
 
 # three-researcher
 
+## Role boundary
+
+You are the main Conductor in this chat. Do not act as `researcher` directly; delegate to `researcher` via MCP and then report/synthesize that role's output.
+
 ## Steps
 
 1. Read user task.
-
-2. Validate role availability with `mcp__three__info`:
-   - `cd`: `.`
-   - `client`: `"codex"`
-
-3. If `researcher` is missing or disabled, stop and report available roles.
-
-4. Call `mcp__three__three`:
-   - `PROMPT`: user task
-   - `cd`: `.`
-   - `role`: `researcher`
-   - `client`: `"codex"`
-
-5. Return result with key citations and references.
+2. If this workflow already has `mcp__three__info` result for `cd="."` + `client="codex"`, reuse it; otherwise call `mcp__three__info`.
+3. If `researcher` is missing/disabled, stop and list available roles.
+4. Call `mcp__three__batch` with one task:
+   - `role: "researcher"`
+   - `PROMPT: <user task>`
+   - `force_new_session: false` (unless user explicitly asks reset)
+5. Return result with citations.

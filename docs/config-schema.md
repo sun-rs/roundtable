@@ -225,7 +225,7 @@ Timeouts resolve in this order (highest to lowest):
 3) `backend.<id>.timeout_secs`
 4) Default `600`
 
-## MCP tool parameter behavior (three / batch / roundtable)
+## MCP tool parameter behavior (batch / roundtable)
 
 This section documents how MCP tools interpret runtime parameters.
 
@@ -239,7 +239,7 @@ This section documents how MCP tools interpret runtime parameters.
 
 ### Conversation scoping
 
-- `three`, `batch`, and `roundtable` all accept `conversation_id` (optional).
+- `batch` and `roundtable` both accept `conversation_id` (optional).
 - Use the same `conversation_id` across calls in one main CLI chat to keep child-session reuse isolated.
 - `batch` and `roundtable` forward `conversation_id` to each fan-out task.
 

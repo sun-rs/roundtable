@@ -49,7 +49,7 @@ Three 是面向 Codex、Gemini、Claude 的多智能体、多大模型 CLI（MCP
 ## 目录结构
 
 - `mcp-server-three/` — MCP Server（Rust）。负责将请求路由到配置的后端，并进行会话复用。
-- `plugins/claude-code/three/` — Claude Code 插件（斜杠命令 + 路由技能）。
+- `plugins/claude-code/three/` — Claude Code 插件（斜杠命令）。
 
 ## 文档索引
 

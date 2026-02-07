@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
-/// Input parameters for the three tool.
+/// Input parameters for a single routed task (used by batch/roundtable internals).
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct VibeArgs {
     /// Task instruction
@@ -426,25 +426,6 @@ impl VibeServer {
 
 #[tool_router]
 impl VibeServer {
-    /// Route a prompt to a configured backend (codex|gemini) with session reuse.
-    ///
-    /// Best practice: pass `cd` as your repo root and provide `role`.
-    #[tool(
-        name = "three",
-        description = "Route a prompt to configured backends with session reuse"
-    )]
-    async fn vibe(
-        &self,
-        peer: Peer<RoleServer>,
-        Parameters(args): Parameters<VibeArgs>,
-    ) -> Result<CallToolResult, McpError> {
-        let out = self.run_vibe_internal(Some(peer), args).await?;
-        let json = serde_json::to_string(&out).map_err(|e| {
-            McpError::internal_error(format!("failed to serialize output: {e}"), None)
-        })?;
-        Ok(CallToolResult::success(vec![Content::text(json)]))
-    }
-
     /// Run multiple tasks in parallel and return partial results.
     #[tool(
         name = "batch",
@@ -1554,7 +1535,7 @@ impl ServerHandler for VibeServer {
             capabilities: ServerCapabilities::builder().enable_tools().build(),
             server_info: Implementation::from_build_env(),
             instructions: Some(
-                "This server provides a 'three' tool that routes prompts to Codex/Gemini CLIs with session reuse."
+                "This server provides 'batch', 'roundtable', and 'info' tools for multi-role orchestration."
                     .to_string(),
             ),
         }

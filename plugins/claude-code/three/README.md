@@ -1,6 +1,6 @@
 # three (Claude Code plugin)
 
-This plugin provides a small set of commands and routing guidance for using the local `three` MCP server.
+This plugin provides a small set of commands for using the local `three` MCP server.
 
 It is intentionally file-based (markdown + JSON), similar to Anthropic's `knowledge-work-plugins`.
 

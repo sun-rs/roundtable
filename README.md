@@ -49,7 +49,7 @@ Execute independent tasks concurrently with partial failure handling and real-ti
 ## Repo layout
 
 - `mcp-server-three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
-- `plugins/claude-code/three/` — Claude Code plugin (slash commands + routing skill).
+- `plugins/claude-code/three/` — Claude Code plugin (slash commands).
 
 ## Docs index
 

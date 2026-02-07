@@ -5,77 +5,36 @@ description: Orchestrate multiple three roles, delegate work, and synthesize a s
 
 # three-conductor
 
-Use this when a task needs orchestration across multiple specialist roles.
+Use this as the single policy source for multi-role orchestration.
 
-## Your role
+## Conductor responsibility
 
-You are the Conductor. You:
-- break down the task
-- choose which roles to consult
-- gather responses
-- synthesize one coherent output
-- if running a roundtable, drive 1-3 rounds and feed disagreements back to every participant
+You are the Conductor. You decide mode (`batch` / `roundtable`), memory policy, role set, and final synthesis.
 
-Do not include persona text yourself. The MCP server injects built-in personas.
+## Contract (must follow)
 
-## Default role pool (only if enabled in config)
+1. Reuse `mcp__three__info` if this workflow already has it for `cd="."` + `client="codex"`; otherwise call it once.
+2. Only call roles where `enabled=true` in `info.roles`.
+3. Single role task -> `mcp__three__batch` with one task.
+4. Same prompt to many roles -> one `mcp__three__batch` call.
+5. Multi-round, same-topic debate -> `$three-roundtable` (`mcp__three__roundtable`).
+6. Before each `batch` call and roundtable Round 1, infer memory policy and give recommendation (`force_new_session=true|false`) with one-line reason.
+7. If user explicitly asks reset/new clean context -> `force_new_session=true`.
+8. If user explicitly asks continue/recall/follow-up -> `force_new_session=false`.
+9. If memory policy is unclear, ask user before MCP call.
+10. Roundtable Round 2/3 always use `force_new_session=false`.
 
-| Role | Summary |
-| --- | --- |
-| `oracle` | Architecture, tech choices, long-term tradeoffs. |
-| `builder` | Implementation, debugging, practical feasibility. |
-| `researcher` | Evidence in code/docs/web with citations. |
-| `reviewer` | Adversarial review for correctness and risk. |
-| `critic` | Contrarian risk analysis and failure modes. |
-| `sprinter` | Fast ideation and quick options (not exhaustive). |
+## Role pool (if enabled)
 
-## Non-negotiable rules
+`oracle`, `builder`, `researcher`, `reviewer`, `critic`, `sprinter`
 
-- If user asks the same question to multiple/all roles, do **one** `mcp__three__batch` call.
-- Do **not** loop serial `mcp__three__three` calls for fan-out.
-- Default session behavior is **continue memory** (`force_new_session=false`).
-- Set `force_new_session=true` only when user explicitly asks reset/new clean session.
-- If user asks recall/continue/follow-up, keep `force_new_session=false`.
-- If you choose `$three-roundtable`, keep all rounds inside `$three-roundtable` workflow (Round 2/3 resume-only), not ad-hoc serial role calls.
+## Workflow
 
-## Steps
-
-1. Call `mcp__three__info` with:
-   - `cd`: `.`
-   - `client`: `"codex"`
-
-2. Treat `info.roles` (`enabled=true`) as the only callable role set.
-
-3. Choose a delegation pattern:
-   - Single expert: call `mcp__three__three` with `role=<enabled-role>` and `client="codex"`
-   - Same question to all/many roles: call one `mcp__three__batch`
-   - Parallel independent tasks: call `mcp__three__batch`
-   - Complex ambiguous tradeoffs with cross-feedback: use `$three-roundtable`
-   - Pass `conversation_id` when host can provide a stable main-chat id
-
-4. Batch fan-out template for "ask all members":
-
-```json
-{
-  "cd": ".",
-  "client": "codex",
-  "tasks": [
-    {"name": "oracle", "role": "oracle", "PROMPT": "<same question>", "force_new_session": false},
-    {"name": "builder", "role": "builder", "PROMPT": "<same question>", "force_new_session": false},
-    {"name": "researcher", "role": "researcher", "PROMPT": "<same question>", "force_new_session": false}
-  ]
-}
-```
-
-Only include roles that are enabled in `info.roles`.
-
-5. If delegating code changes to `builder`, enforce:
-   - `contract`: `patch_with_citations`
-   - `validate_patch`: `true`
-
-6. Synthesize outputs:
-   - show consensus and disagreements
-   - report partial failures if any batch task fails
-   - propose clear next actions
-
-7. Only invoke `$three-roundtable` when user asks for it or the task clearly needs multi-round debate.
+1. Validate role availability via `mcp__three__info` (or reuse cached info).
+2. Pick mode (`batch` single-role / multi-role, or roundtable multi-round).
+3. Decide memory policy for next fan-out call.
+4. Pass `conversation_id` when available.
+5. For code-change work (`builder`/`reviewer`), require:
+   - `contract: "patch_with_citations"`
+   - `validate_patch: true`
+6. Synthesize outputs and report partial failures explicitly.

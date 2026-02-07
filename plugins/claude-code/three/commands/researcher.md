@@ -6,23 +6,17 @@ description: Research and evidence gathering via three MCP
 
 Use this for codebase evidence, doc lookups, and grounded answers.
 
+## Role boundary
+
+You are the main Conductor in this chat. Do not act as `researcher` directly; delegate to `researcher` via MCP and then report/synthesize that role's output.
+
 ## Steps
 
-1. Take the text after the command as the task prompt.
-
-2. Call the MCP tool `mcp__three__info` with (skip if you already validated roles in this thread via `/three:conductor`):
-   - `cd`: `.`
-   - `client`: `"claude"`
-
-   If the role `researcher` is missing or `enabled=false`, stop and explain:
-   - the role is missing in `~/.config/three/config.json`
-   - list available roles
-   - suggest either adding a `researcher` role or choosing a different role and re-running
-
-3. Call the MCP tool `mcp__three__three` with:
-   - `PROMPT`: the user's task prompt
-   - `cd`: `.`
-   - `role`: `researcher`
-   - `client`: `"claude"`
-
-4. Return the result to the user. If `success=false`, explain the error and suggest a retry with `force_new_session=true`.
+1. Read the text after command as task prompt.
+2. If this workflow already has `mcp__three__info` result for `cd="."` + `client="claude"`, reuse it; otherwise call `mcp__three__info`.
+3. If `researcher` is missing/disabled, stop and list available roles.
+4. Call `mcp__three__batch` with **one** task:
+   - `role: "researcher"`
+   - `PROMPT: <user task>`
+   - `force_new_session: false` (unless user explicitly asks reset)
+5. Return the single task result with key evidence.
