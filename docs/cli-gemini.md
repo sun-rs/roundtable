@@ -1,6 +1,6 @@
-# Gemini CLI (three)
+# Gemini CLI (roundtable)
 
-This document describes how three maps config to the Gemini CLI, how sessions are resumed,
+This document describes how roundtable maps config to the Gemini CLI, how sessions are resumed,
 and Gemini-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
 ## Scope
@@ -27,7 +27,7 @@ and Gemini-specific notes. Output modes and parsing rules live in `docs/cli-outp
 ### Model
 
 - `roles.<id>.model` -> `-m <model>`
-- If `model == "default"`, three omits `-m`.
+- If `model == "default"`, roundtable omits `-m`.
 
 ### Prompt
 
@@ -62,4 +62,4 @@ See `docs/cli-output-modes.md`.
 
 ## Default model behavior
 
-When `model == "default"`, three does not pass `-m`; Gemini uses its configured default.
+When `model == "default"`, roundtable does not pass `-m`; Gemini uses its configured default.

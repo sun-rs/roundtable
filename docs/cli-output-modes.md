@@ -9,7 +9,7 @@ All `docs/cli-*.md` files must link here and should not duplicate output details
 
 ## Summary
 
-| CLI | Mode used by three | CLI output modes | Session ID source | Message extraction | Notes |
+| CLI | Mode used by roundtable | CLI output modes | Session ID source | Message extraction | Notes |
 | --- | --- | --- | --- | --- | --- |
 | **claude** | `--output-format json` (single JSON) | `text` / `json` / `stream-json` | `session_id` | `result` | `stream-json` requires `--print --output-format stream-json --include-partial-messages --verbose` |
 | **codex** | `--json` (JSONL stream) | `--json` (stream) / default text | `thread_id` | last `item.text` from `agent_message` | default text mixes thinking and output; avoid |
@@ -22,7 +22,7 @@ All `docs/cli-*.md` files must link here and should not duplicate output details
 ## Prompt transport (argv vs stdin)
 
 These findings are from local CLI probes (2026-02-06) using explicit A/B markers.
-We avoid mixed transport in three and send prompts via **one** channel only.
+We avoid mixed transport in roundtable and send prompts via **one** channel only.
 
 ### When argv + stdin are both provided
 
@@ -48,7 +48,7 @@ We avoid mixed transport in three and send prompts via **one** channel only.
 
 ## Stream completion rule
 
-For streaming outputs (Codex/OpenCode, or any CLI in stream mode), three waits for the CLI process to exit,
+For streaming outputs (Codex/OpenCode, or any CLI in stream mode), roundtable waits for the CLI process to exit,
 then selects the **last** candidate message that matches the extraction rule above. This avoids prematurely
 returning partial messages.
 

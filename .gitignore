@@ -10,4 +10,4 @@
 .vscode/
 
 # Local symlink for OpenCode plugin development
-plugins/opencode/three/node_modules
+plugins/opencode/roundtable/node_modules

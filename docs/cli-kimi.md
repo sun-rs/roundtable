@@ -1,6 +1,6 @@
-# Kimi CLI (three)
+# Kimi CLI (roundtable)
 
-This document describes how three maps config to the Kimi CLI, how sessions are resumed,
+This document describes how roundtable maps config to the Kimi CLI, how sessions are resumed,
 and Kimi-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
 ## Scope
@@ -39,7 +39,7 @@ and Kimi-specific notes. Output modes and parsing rules live in `docs/cli-output
 ### Model
 
 - `roles.<id>.model` -> `--model <model>`
-- If `model == "default"`, three omits `--model`.
+- If `model == "default"`, roundtable omits `--model`.
 
 ### Prompt
 
@@ -53,7 +53,7 @@ and Kimi-specific notes. Output modes and parsing rules live in `docs/cli-output
 ### Filesystem / approval
 
 - Kimi CLI does not expose a read-only flag.
-- three uses a prompt guardrail for read-only roles (best effort). The exact guardrail
+- roundtable uses a prompt guardrail for read-only roles (best effort). The exact guardrail
   string is defined in the adapter template.
 
 ### options / variants
@@ -71,4 +71,4 @@ See `docs/cli-output-modes.md`.
 
 ## Default model behavior
 
-When `model == "default"`, three does not pass `--model`; Kimi uses its configured default.
+When `model == "default"`, roundtable does not pass `--model`; Kimi uses its configured default.

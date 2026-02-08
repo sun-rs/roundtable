@@ -1,6 +1,6 @@
-# OpenCode CLI (three)
+# OpenCode CLI (roundtable)
 
-This document describes how three maps config to the OpenCode CLI, how sessions are resumed,
+This document describes how roundtable maps config to the OpenCode CLI, how sessions are resumed,
 and OpenCode-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
 ## Scope
@@ -24,7 +24,7 @@ run
 ### Model
 
 - `roles.<id>.model` -> `-m <provider/model>`
-- If `model == "default"`, three omits `-m`.
+- If `model == "default"`, roundtable omits `-m`.
 
 ### Prompt
 
@@ -38,7 +38,7 @@ run
 ### Filesystem
 
 - OpenCode CLI has no read-only flag.
-- three rejects read-only roles for this backend.
+- roundtable rejects read-only roles for this backend.
 
 ### options / variants
 
@@ -50,9 +50,9 @@ See `docs/cli-output-modes.md`.
 
 ## Notes and limitations
 
-- `--format default` does not include a session id; three always uses `--format json`.
+- `--format default` does not include a session id; roundtable always uses `--format json`.
 - Only `type: text` events carry `part.text`; other events are ignored.
 
 ## Default model behavior
 
-When `model == "default"`, three does not pass `-m`; OpenCode uses its configured default.
+When `model == "default"`, roundtable does not pass `-m`; OpenCode uses its configured default.

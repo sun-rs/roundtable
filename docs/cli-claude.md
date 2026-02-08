@@ -1,6 +1,6 @@
-# Claude CLI (three)
+# Claude CLI (roundtable)
 
-This document describes how three maps config to the Claude Code CLI, how sessions are resumed,
+This document describes how roundtable maps config to the Claude Code CLI, how sessions are resumed,
 and Claude-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
 ## Scope
@@ -28,7 +28,7 @@ and Claude-specific notes. Output modes and parsing rules live in `docs/cli-outp
 ### Model
 
 - `roles.<id>.model` -> `--model <model-id>`
-- If `model == "default"`, three omits `--model`.
+- If `model == "default"`, roundtable omits `--model`.
 
 ### Prompt
 
@@ -60,4 +60,4 @@ See `docs/cli-output-modes.md`.
 
 ## Default model behavior
 
-When `model == "default"`, three does not pass `--model`; Claude CLI uses its configured default.
+When `model == "default"`, roundtable does not pass `--model`; Claude CLI uses its configured default.

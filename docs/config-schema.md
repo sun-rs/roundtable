@@ -1,4 +1,4 @@
-# Three config schema (draft)
+# Roundtable config schema (draft)
 
 This document captures the agreed configuration shape before code changes.
 
@@ -11,25 +11,25 @@ The config has exactly two top-level keys:
 
 ## Config file selection (client-aware)
 
-Three supports **client-specific configs**. If a client hint is provided, the server prefers
+Roundtable supports **client-specific configs**. If a client hint is provided, the server prefers
 `config-<client>.json` before falling back to `config.json`.
 
 Client hint sources (first match wins):
 
 - MCP parameter: `client` (e.g. `"claude"`, `"codex"`, `"opencode"`)
-- Environment variable: `THREE_CLIENT` (used when calling the server without a plugin)
+- Environment variable: `ROUNDTABLE_CLIENT` (used when calling the server without a plugin)
 
 Search order per layer:
 
 1. **User config**
-   - `~/.config/three/config-<client>.json`
-   - `~/.config/three/config.json`
+   - `~/.config/roundtable/config-<client>.json`
+   - `~/.config/roundtable/config.json`
 2. **Project config** (overrides user)
-   - `./.three/config-<client>.json`
-   - `./.three/config.json`
-   - `./.three.json` (legacy fallback; no client-specific variant)
+   - `./.roundtable/config-<client>.json`
+   - `./.roundtable/config.json`
+   - `./.roundtable.json` (single-file fallback; no client-specific variant)
 
-If no client hint is provided, only `config.json` / `.three.json` are considered.
+If no client hint is provided, only `config.json` / `.roundtable.json` are considered.
 
 ## backend
 
@@ -233,8 +233,8 @@ This section documents how MCP tools interpret runtime parameters.
 
 - If `session_key` is provided, it is used verbatim for persistence/locking.
 - Otherwise, the key is derived as `hash(repo_root + role + role_id + client + conversation_id)`.
-  - `client` comes from MCP `client` param (or `THREE_CLIENT`).
-  - `conversation_id` comes from MCP `conversation_id` param (or `THREE_CONVERSATION_ID`).
+  - `client` comes from MCP `client` param (or `ROUNDTABLE_CLIENT`).
+  - `conversation_id` comes from MCP `conversation_id` param (or `ROUNDTABLE_CONVERSATION_ID`).
   - If `conversation_id` is missing, auto-resume may cross top-level chats that share repo+role (a warning is returned).
 
 ### Conversation scoping

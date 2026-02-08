@@ -1,4 +1,4 @@
-# Roundtable (formerly Three)
+# Roundtable
 
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
@@ -19,9 +19,9 @@ This repository now has two distinct architecture tracks under one codebase:
 
 ### B) MCP + Prompt Engineering Track (portable, host-agnostic)
 
-- Runtime: `mcp-server-three` + host-specific text plugins/skills (Claude/Codex)
-- Claude/Codex entrypoints remain `/three:*` and `three-*` skills for compatibility
-- Core MCP tools: `roundtable`, `batch`, `roundtable-batch` (alias), `roundtable_batch` (alias), `info`
+- Runtime: `mcp-server-roundtable` + host-specific text plugins/skills (Claude/Codex)
+- Claude/Codex entrypoints remain `/roundtable:*` and `roundtable-*` skills for compatibility
+- Core MCP tools: `roundtable`, `batch`, `roundtable-batch` (alias), `info`
 - Strength: works across MCP-capable hosts, flexible parallel fan-out, explicit role control
 - Focus: portable orchestration where host-native agent/task APIs are unavailable
 
@@ -34,7 +34,7 @@ Because these two systems optimize different constraints:
 | Orchestration substrate | Host-native task engine | MCP tool fan-out |
 | Session continuity | Native child sessions, UI-visible | Session-store + backend resume |
 | Observability | Clickable background tasks | MCP structured outputs/logs |
-| Role source | OpenCode/oh-my-opencode agent catalog | `~/.config/three/config*.json` roles |
+| Role source | OpenCode/oh-my-opencode agent catalog | `~/.config/roundtable/config*.json` roles |
 | Best use case | Deep roundtable discussions | Cross-host portability + scripted fan-out |
 
 ## Roundtable-first design
@@ -43,14 +43,14 @@ The project is now explicitly **roundtable-first**:
 
 - Roundtable is the core capability and primary product direction.
 - Batch remains secondary and is retained mainly for independent fan-out workloads.
-- On MCP track, `roundtable-batch` / `roundtable_batch` are provided as roundtable-branded aliases for `batch`.
+- On MCP track, `roundtable-batch` is provided as a roundtable-branded alias for `batch`.
 
 ## Repo layout
 
-- `mcp-server-three/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
-- `plugins/claude-code/three/` — Claude Code plugin (slash commands, `/three:*`).
-- `plugins/codex/three/` — Codex skills (`three-*`).
-- `plugins/opencode/three/` — OpenCode native plugin (`/roundtable`, native task orchestration).
+- `mcp-server-roundtable/` — MCP server (Rust). Routes prompts to configured backends with session reuse.
+- `plugins/claude-code/roundtable/` — Claude Code plugin (slash commands, `/roundtable:*`).
+- `plugins/codex/roundtable/` — Codex skills (`roundtable-*`).
+- `plugins/opencode/roundtable/` — OpenCode native plugin (`/roundtable`, native task orchestration).
 
 ## OpenCode track quick start
 
@@ -58,8 +58,8 @@ Install local plugin:
 
 ```bash
 mkdir -p ~/.config/opencode/plugins
-ln -sf "$(pwd)/plugins/opencode/three/index.js" \
-  ~/.config/opencode/plugins/three-opencode.js
+ln -sf "$(pwd)/plugins/opencode/roundtable/index.js" \
+  ~/.config/opencode/plugins/roundtable-opencode.js
 ```
 
 Restart OpenCode, then use:
@@ -70,38 +70,38 @@ Policy highlights:
 
 - Participant turns must use `subagent_type` (not `category`).
 - Round 2+ must continue previous participant sessions.
-- `three_native_roundtable` is soft-locked during `/roundtable` unless `allow_native=true` is explicitly set.
+- `roundtable_native_roundtable` is soft-locked during `/roundtable` unless `allow_native=true` is explicitly set.
 
 ## MCP track quick start
 
 1) Build MCP server:
 
 ```bash
-cd mcp-server-three
+cd mcp-server-roundtable
 cargo build --release
 ```
 
 2) Register server in Claude Code:
 
 ```bash
-claude mcp add three -s user --transport stdio -- \
-  "$(pwd)/target/release/mcp-server-three"
+claude mcp add roundtable -s user --transport stdio -- \
+  "$(pwd)/target/release/mcp-server-roundtable"
 ```
 
 3) Install Claude plugin:
 
 ```bash
 claude plugin marketplace add "./plugins/claude-code"
-claude plugin install three@three-local
+claude plugin install roundtable@roundtable-local
 ```
 
-4) Use plugin commands (`/three:*`) and MCP tools:
+4) Use plugin commands (`/roundtable:*`) and MCP tools:
 
-- `/three:conductor <task>`
-- `/three:roundtable <topic>`
-- `mcp__three__roundtable`
-- `mcp__three__roundtable_batch` (or `mcp__three__batch`)
-- `mcp__three__info`
+- `/roundtable:conductor <task>`
+- `/roundtable:roundtable <topic>`
+- `mcp__roundtable__roundtable`
+- `mcp__roundtable__roundtable_batch`
+- `mcp__roundtable__info`
 
 ## Docs index
 
@@ -109,7 +109,7 @@ claude plugin install three@three-local
 - `docs/cli-*.md` — per-CLI flag mapping, session resume, and CLI-specific notes
 - `docs/config-schema.md` — config fields, defaults, and role resolution rules
 
-Client-specific configs: `config-<client>.json` is preferred when MCP `client` (or `THREE_CLIENT`) is set.
+Client-specific configs: `config-<client>.json` is preferred when MCP `client` (or `ROUNDTABLE_CLIENT`) is set.
 
 Note: `examples/config.json` is a technical-only template (no persona overrides).
 Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides built-ins.
@@ -142,4 +142,4 @@ Adapter notes:
 
 - The MCP server is host-agnostic; any MCP-capable CLI can use it.
 - Plugins/skills are host-specific by design.
-- Directory names keep `three` for now to avoid breaking installed integrations; branding is Roundtable-first.
+- Directory names keep `roundtable` for now to avoid breaking installed integrations; branding is Roundtable-first.

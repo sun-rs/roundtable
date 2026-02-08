@@ -1,6 +1,6 @@
-# Codex CLI (three)
+# Codex CLI (roundtable)
 
-This document describes how three maps config to the Codex CLI, how sessions are resumed,
+This document describes how roundtable maps config to the Codex CLI, how sessions are resumed,
 and Codex-specific notes. Output modes and parsing rules live in `docs/cli-output-modes.md`.
 
 ## Scope
@@ -37,7 +37,7 @@ exec
 
 - No session: `--model <model>`
 - With session: `-c model=<model>` (avoid `--model`)
-- If `model == "default"`, three omits model flags.
+- If `model == "default"`, roundtable omits model flags.
 
 ### Prompt
 
@@ -66,8 +66,8 @@ See `docs/cli-output-modes.md`.
 
 - `codex exec resume` supports fewer flags than `codex exec`.
 - Do not rely on `--model` when resuming; use `-c model=...`.
-- Default text output is streaming and mixes reasoning with output; three avoids it.
+- Default text output is streaming and mixes reasoning with output; roundtable avoids it.
 
 ## Default model behavior
 
-When `model == "default"`, three does not pass model flags; Codex uses its configured default.
+When `model == "default"`, roundtable does not pass model flags; Codex uses its configured default.

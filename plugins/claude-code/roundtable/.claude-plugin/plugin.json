@@ -1,0 +1,8 @@
+{
+  "name": "roundtable",
+  "version": "0.2.1",
+  "description": "Multi-agent, multi-LLM vibe-coding orchestrator for complex software tasks.",
+  "author": {
+    "name": "roundtable"
+  }
+}

@@ -1,4 +1,4 @@
-# Roundtable（原 Three）
+# Roundtable（原 Roundtable）
 
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
@@ -19,9 +19,9 @@
 
 ### B）MCP + 提示词工程路线（跨宿主、可移植）
 
-- 运行时：`mcp-server-three` + Claude/Codex 文本插件/skills
-- Claude/Codex 入口仍保留 `/three:*` 与 `three-*`（兼容历史）
-- 核心 MCP 工具：`roundtable`、`batch`、`roundtable-batch`（别名）、`roundtable_batch`（别名）、`info`
+- 运行时：`mcp-server-roundtable` + Claude/Codex 文本插件/skills
+- Claude/Codex 入口仍保留 `/roundtable:*` 与 `roundtable-*`（兼容历史）
+- 核心 MCP 工具：`roundtable`、`batch`、`roundtable-batch`（别名）、`info`
 - 优势：可在各类 MCP 宿主复用，显式 role 路由灵活
 - 目标：在缺少宿主原生多 agent 能力时提供统一编排
 
@@ -34,7 +34,7 @@
 | 编排底座 | 宿主原生 task 引擎 | MCP 工具 fan-out |
 | 会话连续性 | 原生子会话，UI 可见 | 本地 session store + backend resume |
 | 可观测性 | 后台任务可点击追踪 | MCP 结构化输出与日志 |
-| 角色来源 | OpenCode/oh-my-opencode agent catalog | `~/.config/three/config*.json` roles |
+| 角色来源 | OpenCode/oh-my-opencode agent catalog | `~/.config/roundtable/config*.json` roles |
 | 最适场景 | 深度 roundtable 讨论 | 跨宿主可移植协作 |
 
 ## Roundtable-first 设计
@@ -43,14 +43,14 @@
 
 - Roundtable 是核心能力与主产品方向。
 - Batch 保留为次要能力，主要用于独立任务并行扇出。
-- MCP 路线上新增 `roundtable-batch` / `roundtable_batch`，作为 `batch` 的 roundtable 命名别名。
+- MCP 路线上新增 `roundtable-batch`，作为 `batch` 的 roundtable 命名别名。
 
 ## 仓库结构
 
-- `mcp-server-three/` — MCP Server（Rust），负责路由与会话复用。
-- `plugins/claude-code/three/` — Claude Code 插件（`/three:*`）。
-- `plugins/codex/three/` — Codex skills（`three-*`）。
-- `plugins/opencode/three/` — OpenCode 原生插件（`/roundtable`，原生 task 编排）。
+- `mcp-server-roundtable/` — MCP Server（Rust），负责路由与会话复用。
+- `plugins/claude-code/roundtable/` — Claude Code 插件（`/roundtable:*`）。
+- `plugins/codex/roundtable/` — Codex skills（`roundtable-*`）。
+- `plugins/opencode/roundtable/` — OpenCode 原生插件（`/roundtable`，原生 task 编排）。
 
 ## OpenCode 路线快速开始
 
@@ -58,8 +58,8 @@
 
 ```bash
 mkdir -p ~/.config/opencode/plugins
-ln -sf "$(pwd)/plugins/opencode/three/index.js" \
-  ~/.config/opencode/plugins/three-opencode.js
+ln -sf "$(pwd)/plugins/opencode/roundtable/index.js" \
+  ~/.config/opencode/plugins/roundtable-opencode.js
 ```
 
 重启 OpenCode 后使用：
@@ -70,38 +70,38 @@ ln -sf "$(pwd)/plugins/opencode/three/index.js" \
 
 - 参与者轮次必须用 `subagent_type`（不能走 `category`）。
 - 第 2 轮起必须续接既有参与者 session。
-- `/roundtable` 执行期间默认软锁 `three_native_roundtable`，仅在显式 `allow_native=true` 时放行。
+- `/roundtable` 执行期间默认软锁 `roundtable_native_roundtable`，仅在显式 `allow_native=true` 时放行。
 
 ## MCP 路线快速开始
 
 1）构建 MCP Server：
 
 ```bash
-cd mcp-server-three
+cd mcp-server-roundtable
 cargo build --release
 ```
 
 2）在 Claude Code 注册 MCP Server：
 
 ```bash
-claude mcp add three -s user --transport stdio -- \
-  "$(pwd)/target/release/mcp-server-three"
+claude mcp add roundtable -s user --transport stdio -- \
+  "$(pwd)/target/release/mcp-server-roundtable"
 ```
 
 3）安装 Claude 插件：
 
 ```bash
 claude plugin marketplace add "./plugins/claude-code"
-claude plugin install three@three-local
+claude plugin install roundtable@roundtable-local
 ```
 
-4）使用 `/three:*` 与 MCP 工具：
+4）使用 `/roundtable:*` 与 MCP 工具：
 
-- `/three:conductor <task>`
-- `/three:roundtable <topic>`
-- `mcp__three__roundtable`
-- `mcp__three__roundtable_batch`（或 `mcp__three__batch`）
-- `mcp__three__info`
+- `/roundtable:conductor <task>`
+- `/roundtable:roundtable <topic>`
+- `mcp__roundtable__roundtable`
+- `mcp__roundtable__roundtable_batch`
+- `mcp__roundtable__info`
 
 ## 文档索引
 
@@ -109,7 +109,7 @@ claude plugin install three@three-local
 - `docs/cli-*.md` — 各 CLI 参数映射、续接策略与特性说明
 - `docs/config-schema.md` — 配置字段、默认值与 role 解析规则
 
-当 MCP `client`（或 `THREE_CLIENT`）存在时，优先加载 `config-<client>.json`。
+当 MCP `client`（或 `ROUNDTABLE_CLIENT`）存在时，优先加载 `config-<client>.json`。
 
 说明：`examples/config.json` 是技术模板（不含 persona 覆盖）；
 persona 内置在 MCP Server，`roles.<id>.personas` 为可选覆盖项。
@@ -140,4 +140,4 @@ Adapter 说明：
 
 - MCP Server 是宿主无关组件，任何 MCP 宿主都可接入。
 - 插件/skills 是宿主相关组件。
-- 当前目录与插件 id 仍保留 `three` 命名以避免破坏已有安装；品牌定位已转为 Roundtable-first。
+- 当前目录与插件 id 仍保留 `roundtable` 命名以避免破坏已有安装；品牌定位已转为 Roundtable-first。
