@@ -1,4 +1,4 @@
-# Roundtable（原 Roundtable）
+# Roundtable
 
 [![English](https://img.shields.io/badge/lang-English-lightgrey)](README.md)
 [![中文](https://img.shields.io/badge/语言-中文-blue)](README.zh-CN.md)
@@ -20,8 +20,8 @@
 ### B）MCP + 提示词工程路线（跨宿主、可移植）
 
 - 运行时：`mcp-server-roundtable` + Claude/Codex 文本插件/skills
-- Claude/Codex 入口仍保留 `/roundtable:*` 与 `roundtable-*`（兼容历史）
-- 核心 MCP 工具：`roundtable`、`batch`、`roundtable-batch`（别名）、`info`
+- Claude/Codex 入口为 `/roundtable:*` 与 `roundtable-*`
+- 核心 MCP 工具：`roundtable`、`roundtable-batch`、`info`
 - 优势：可在各类 MCP 宿主复用，显式 role 路由灵活
 - 目标：在缺少宿主原生多 agent 能力时提供统一编排
 
@@ -42,8 +42,8 @@
 项目正式转为 **roundtable-first**：
 
 - Roundtable 是核心能力与主产品方向。
-- Batch 保留为次要能力，主要用于独立任务并行扇出。
-- MCP 路线上新增 `roundtable-batch`，作为 `batch` 的 roundtable 命名别名。
+- roundtable-batch 保留为次要能力，主要用于独立任务并行扇出。
+- MCP 路线上，独立任务并行只保留 `roundtable-batch`。
 
 ## 仓库结构
 

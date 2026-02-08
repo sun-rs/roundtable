@@ -225,7 +225,7 @@ Timeouts resolve in this order (highest to lowest):
 3) `backend.<id>.timeout_secs`
 4) Default `600`
 
-## MCP tool parameter behavior (batch / roundtable)
+## MCP tool parameter behavior (roundtable-batch / roundtable)
 
 This section documents how MCP tools interpret runtime parameters.
 
@@ -239,9 +239,9 @@ This section documents how MCP tools interpret runtime parameters.
 
 ### Conversation scoping
 
-- `batch` and `roundtable` both accept `conversation_id` (optional).
+- `roundtable-batch` and `roundtable` both accept `conversation_id` (optional).
 - Use the same `conversation_id` across calls in one main CLI chat to keep child-session reuse isolated.
-- `batch` and `roundtable` forward `conversation_id` to each fan-out task.
+- `roundtable-batch` and `roundtable` forward `conversation_id` to each fan-out task.
 
 ### Session resume
 
@@ -271,7 +271,7 @@ This section documents how MCP tools interpret runtime parameters.
 - `roundtable` fan-outs participant prompts and returns per-participant contributions only.
 - There is no MCP-side `moderator` role parameter.
 - Multi-round synthesis is the conductor/main-CLI responsibility (plugin or skill workflow).
-- `batch` and `roundtable` emit MCP logging notifications during fan-out by default (`started` / `completed role`).
+- `roundtable-batch` and `roundtable` emit MCP logging notifications during fan-out by default (`started` / `completed role`).
   Clients that render `notifications/message` can show real-time completion progress.
 
 ## Role → CLI mapping (summary)

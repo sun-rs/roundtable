@@ -16,7 +16,7 @@ You stay Conductor. Do not answer as `builder`; delegate to MCP role `builder` a
 2. Reuse cached `mcp__roundtable__info` for `cd="."` + `client="claude"`; call once if missing.
 3. If `builder` is missing/disabled, stop and list available roles.
 4. Detect code-change intent.
-5. Call `mcp__roundtable__batch` with one task:
+5. Call `mcp__roundtable__roundtable_batch` with one task:
    - `role: "builder"`
    - `PROMPT: <user task>`
    - `force_new_session: false` (unless user explicitly asks reset)

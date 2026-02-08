@@ -20,8 +20,8 @@ This repository now has two distinct architecture tracks under one codebase:
 ### B) MCP + Prompt Engineering Track (portable, host-agnostic)
 
 - Runtime: `mcp-server-roundtable` + host-specific text plugins/skills (Claude/Codex)
-- Claude/Codex entrypoints remain `/roundtable:*` and `roundtable-*` skills for compatibility
-- Core MCP tools: `roundtable`, `batch`, `roundtable-batch` (alias), `info`
+- Claude/Codex entrypoints are `/roundtable:*` and `roundtable-*` skills
+- Core MCP tools: `roundtable`, `roundtable-batch`, `info`
 - Strength: works across MCP-capable hosts, flexible parallel fan-out, explicit role control
 - Focus: portable orchestration where host-native agent/task APIs are unavailable
 
@@ -42,8 +42,8 @@ Because these two systems optimize different constraints:
 The project is now explicitly **roundtable-first**:
 
 - Roundtable is the core capability and primary product direction.
-- Batch remains secondary and is retained mainly for independent fan-out workloads.
-- On MCP track, `roundtable-batch` is provided as a roundtable-branded alias for `batch`.
+- Roundtable-batch remains secondary and is retained mainly for independent fan-out workloads.
+- On MCP track, independent fan-out is exposed only as `roundtable-batch`.
 
 ## Repo layout
 

@@ -142,7 +142,7 @@ claude plugin install roundtable@roundtable-local
 | :--- | :--- |
 | `/roundtable:conductor <task>` | Orchestrate work and decide when to use roundtable. |
 | `/roundtable:roundtable <topic>` | Multi-role consensus workflow (1–3 rounds). |
-| `mcp__roundtable__roundtable_batch` (`roundtable-batch`) | Roundtable-first alias of batch for independent fan-out. |
+| `mcp__roundtable__roundtable_batch` (`roundtable-batch`) | Independent fan-out with session reuse. |
 | `/roundtable:oracle <task>` | Architecture and trade-off analysis. |
 | `/roundtable:builder <task>` | Implementation and debugging. |
 | `/roundtable:researcher <task>` | Codebase/doc search and grounding. |
@@ -158,7 +158,7 @@ You don't need to manage session IDs.
 - To reset a conversation, use `force_new_session` in tool calls.
 
 Notes:
-- `batch` and `roundtable` return partial results even if some tasks fail.
+- `roundtable-batch` and `roundtable` return partial results even if some tasks fail.
 - Kimi has no session id. Parallel *resuming* across multiple Kimi roles in the same repo is rejected. Use `force_new_session=true` or a single Kimi role.
 
 ---

@@ -50,5 +50,5 @@ Notes:
 - If a required role is missing, the command will instruct you to add it or choose a different role.
 - `/roundtable:info` is only for troubleshooting; most commands call `mcp__roundtable__info` internally.
 - Personas are built into the MCP server; `roles.<id>.personas` is optional and overrides the built-in persona.
-- Parallel fan-out uses the MCP tool `mcp__roundtable__batch` (not a slash command).
+- Parallel fan-out uses the MCP tool `mcp__roundtable__roundtable_batch` (not a slash command).
 - If your host can provide a stable main-chat id, pass `conversation_id` to scope child-session reuse.

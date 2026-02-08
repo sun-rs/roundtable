@@ -57,7 +57,7 @@ Expected: PASS.
 **Step 1: Add `client: "claude"` to MCP tool calls**
 - `mcp__roundtable__roundtable`
 - `mcp__roundtable__info`
-- `mcp__roundtable__batch`
+- `mcp__roundtable__roundtable_batch`
 - `mcp__roundtable__roundtable`
 
 **Step 2: Run no tests (docs change only)**
